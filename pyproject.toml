@@ -33,6 +33,10 @@ train = [
     "librosa",
     "pre-commit",
 ]
+# Dataset analysis tools (scripts/analysis/)
+analysis = [
+    "duckdb",
+]
 # Paper evaluation metrics (eval/ scripts; some still assume CUDA)
 eval = [
     "jiwer",
