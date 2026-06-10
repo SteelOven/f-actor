@@ -36,6 +36,9 @@ train = [
 # Dataset analysis tools (scripts/analysis/)
 analysis = [
     "duckdb",
+    "marimo",
+    "pandas",
+    "altair",
 ]
 # Paper evaluation metrics (eval/ scripts; some still assume CUDA)
 eval = [
