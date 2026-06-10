@@ -30,3 +30,4 @@ vosk-model-en-us-0.22/
 trained_models
 hf_models/
 outputs/
+confs/oov/
