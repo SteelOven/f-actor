@@ -62,8 +62,8 @@ def parse_args(include_inference: bool = False):
         import torch
 
         assert (
-            torch.cuda.is_available()
-        ), "CUDA is required for mixed precision training."
+            torch.cuda.is_available() or torch.backends.mps.is_available()
+        ), "CUDA or MPS is required for mixed precision."
 
     parsed = (
         ModelArgs(

@@ -1,6 +1,6 @@
 import os
 
-import torch
+from device_utils import get_device
 from huggingface_hub import snapshot_download
 from modeling_dsu import DSULlama
 from special_tokens import TEXT_STREAM_TOKENS
@@ -31,7 +31,7 @@ def add_new_tokens(model, tokenizer, new_tokens, new_special_tokens, logger=None
 def load_model(model_args, grad_acc_steps=1, logger=None, inference=False):
 
     model_id = model_args.model_id
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = get_device()
     logger.info(f"Loading model and tokenizer from '{model_id}'.")
 
     if model_id != "meta-llama/Llama-3.2-1B-Instruct" and not os.path.isdir(model_id):

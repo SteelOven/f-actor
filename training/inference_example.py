@@ -2,6 +2,7 @@ import json
 
 import numpy as np
 import torch
+from device_utils import get_device
 from huggingface_hub import snapshot_download
 from inference_audio.nano_decode import convert_to_audio
 from inference_audio.nano_decode import load_model as load_nanocodecs
@@ -11,7 +12,7 @@ from transformers import AutoConfig, AutoTokenizer
 import re
 
 def load_model():
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = get_device()
     model_id = snapshot_download(
         repo_id="maikezu/f-actor", local_dir=f"./hf_models/f_actor"
     )
@@ -136,8 +137,9 @@ def run_inference(
         truncation=True,
         padding=True,
     )
-    input_ids = inputs.input_ids.cuda()
-    attention_mask = inputs.attention_mask.cuda()
+    device = get_device()
+    input_ids = inputs.input_ids.to(device)
+    attention_mask = inputs.attention_mask.to(device)
 
     # generate dialogue
     print("Generating dialogue...")
@@ -156,10 +158,10 @@ def run_inference(
             stop_strings=["<|EOS|>"],
             use_speaker_sample=0,
             dsu_sample=torch.zeros(1, 8, 1, dtype=torch.int64).to(
-                "cuda"
+                device
             ),  # placeholder
             text_sample=torch.zeros(1, 2, 1, dtype=torch.int64).to(
-                "cuda"
+                device
             ),  # placeholder
             n_delay_text_stream=0,
             n_delay_audio_stream=2,

@@ -5,27 +5,40 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "full-duplex"
 version = "0.1.0"
+requires-python = ">=3.10"
 
+# Core dependencies: enough to run inference (dialogue generation + codec
+# decoding) on CUDA, Apple Silicon (MPS), or CPU.
 dependencies = [
-    "transformers",
     "torch",
-    "dataset",
-    "wandb",
+    # DSULlama subclasses LlamaForCausalLM internals; untested on transformers 5.x
+    "transformers<5",
+    "datasets",
+    "safetensors",
     "sentencepiece",
     "accelerate",
-    "deepspeed",
-    "pre-commit",
     "evaluate",
     "rouge_score",
-    "librosa", 
     "soundfile",
-    "matplotlib", 
-    "hydra-core", 
     "nemo-toolkit[tts]",
     "tqdm",
-    "silero-vad",
-    "jiwer",
+]
+
+[project.optional-dependencies]
+# Training / data preprocessing (Linux + CUDA assumed)
+train = [
+    "deepspeed; sys_platform == 'linux'",
+    "wandb",
     "torchcodec",
+    "librosa",
+    "pre-commit",
+]
+# Paper evaluation metrics (eval/ scripts; some still assume CUDA)
+eval = [
+    "jiwer",
+    "silero-vad",
+    "matplotlib",
+    "hydra-core",
 ]
 
 [tool.setuptools.packages.find]

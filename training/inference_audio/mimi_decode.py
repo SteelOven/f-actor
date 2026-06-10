@@ -10,7 +10,8 @@ from transformers import MimiModel
 
 
 def load_model(num_codebooks=8):
-    model = MimiModel.from_pretrained("kyutai/mimi").to("cuda").eval()
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = MimiModel.from_pretrained("kyutai/mimi").to(device).eval()
     return model
 
 

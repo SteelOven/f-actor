@@ -5,6 +5,7 @@ import time
 
 import torch
 from arguments.parse_arguments import parse_args
+from device_utils import get_device
 from tqdm import tqdm
 from transformers import set_seed
 
@@ -12,6 +13,8 @@ seed = 42
 set_seed(seed, deterministic=True)
 torch.manual_seed(seed)
 torch.cuda.manual_seed_all(seed)
+
+device = get_device()
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import json
@@ -64,19 +67,20 @@ def compute_perplexity(
             max_length=max_length,
             truncation=True,
         )
-        input_ids = prompt_tokens.input_ids.cuda()
-        attention_mask = prompt_tokens.attention_mask.cuda()
+        input_ids = prompt_tokens.input_ids.to(device)
+        attention_mask = prompt_tokens.attention_mask.to(device)
 
         dsu_ids_list = [
-            torch.tensor(x, dtype=torch.long).unsqueeze(0).cuda() for x in ref_texts
+            torch.tensor(x, dtype=torch.long).unsqueeze(0).to(device)
+            for x in ref_texts
         ]
 
-        dsu_ids = torch.stack(dsu_ids_list, dim=1).cuda()
+        dsu_ids = torch.stack(dsu_ids_list, dim=1).to(device)
         labels = None  # compute loss per head
 
         if text_stream_exists:
             ref_text_stream = (
-                torch.tensor(ref_text_stream, dtype=torch.long).unsqueeze(0).cuda()
+                torch.tensor(ref_text_stream, dtype=torch.long).unsqueeze(0).to(device)
             )
             ref_text_stream = ref_text_stream[:, 0 : model.num_text_streams, :]
 
@@ -139,7 +143,7 @@ def generate_outputs(
             ref_text_stream = (
                 torch.tensor(example["reference_text_stream"], dtype=torch.long)
                 .unsqueeze(0)
-                .cuda()
+                .to(device)
             )
 
         # Tokenize main input
@@ -159,14 +163,15 @@ def generate_outputs(
             padding=True,
         )
 
-        input_ids = inputs.input_ids.cuda()
-        attention_mask = inputs.attention_mask.cuda()
+        input_ids = inputs.input_ids.to(device)
+        attention_mask = inputs.attention_mask.to(device)
 
         dsu_ids_list = [
-            torch.tensor(x, dtype=torch.long).unsqueeze(0).cuda() for x in ref_texts
+            torch.tensor(x, dtype=torch.long).unsqueeze(0).to(device)
+            for x in ref_texts
         ]
 
-        dsu_sample = torch.stack(dsu_ids_list, dim=1).cuda()
+        dsu_sample = torch.stack(dsu_ids_list, dim=1).to(device)
         text_sample = ref_text_stream if text_stream_exists else None
 
         if not return_gold:
