@@ -20,7 +20,7 @@ other) — not a real-time voice interface.
 
 Requires [uv](https://docs.astral.sh/uv/). A `uv.lock` is committed
 (Python 3.10, pinned via `.python-version`), so on **macOS (Apple Silicon)**
-and **Linux + NVIDIA GPU** setup is one command — uv fetches Python, creates
+and **Linux (CPU)** setup is one command — uv fetches Python, creates
 `.venv`, and installs everything pinned:
 
 ```bash
@@ -32,13 +32,13 @@ uv sync --extra train    # + training deps (deepspeed, wandb, ...)
 
 Then either `source .venv/bin/activate` or prefix commands with `uv run`.
 
-**Linux without NVIDIA GPU** is the exception: the locked torch wheel on
-Linux bundles ~3 GB of CUDA libraries. Skip the lock and install the CPU
-wheel first:
+Note: the lock pins **CPU-only torch on Linux** (the default PyPI wheel
+bundles ~3 GB of CUDA libraries). **Linux + NVIDIA GPU** is the exception —
+skip the lock and install the CUDA build directly:
 
 ```bash
 uv venv --python 3.10 && source .venv/bin/activate
-uv pip install torch --index-url https://download.pytorch.org/whl/cpu
+uv pip install torch
 uv pip install -e .
 ```
 

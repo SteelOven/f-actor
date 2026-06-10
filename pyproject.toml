@@ -41,6 +41,17 @@ eval = [
     "hydra-core",
 ]
 
+# On Linux, install CPU-only torch (the default PyPI wheel bundles ~3 GB of
+# CUDA libraries). For Linux + NVIDIA GPU, install with the pip path described
+# in LOCAL_SETUP.md instead of `uv sync`. macOS keeps the PyPI wheel (MPS).
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
 [tool.setuptools.packages.find]
 exclude = ["assets*", "benchmark*", "docs", "build", "dist*", "playground*", "scripts*", "tests*"]
 
