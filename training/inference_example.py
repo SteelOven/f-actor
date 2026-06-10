@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 
 import numpy as np
 import torch
@@ -108,7 +109,9 @@ def remove_special_tokens(text):
 def run_inference(config):
     speaker1 = config["speaker1"]
     speaker2 = config["speaker2"]
-    out_audio_file = config.get("output_file", "dialogue.wav")
+    out_dir = config.get("output_dir", "outputs")
+    os.makedirs(out_dir, exist_ok=True)
+    out_audio_file = os.path.join(out_dir, config.get("output_file", "dialogue.wav"))
 
     # load model and tokenizer
     print("Loading model and tokenizer...")
@@ -173,6 +176,20 @@ def run_inference(config):
     print("Decoding generated text")
     text_speaker1 = remove_special_tokens(tokenizer.decode(generated_text_ids[0], skip_special_tokens=False))
     text_speaker2 = remove_special_tokens(tokenizer.decode(generated_text_ids[1], skip_special_tokens=False))
+
+    # save transcripts next to the audio
+    transcript_file = os.path.splitext(out_audio_file)[0] + ".json"
+    with open(transcript_file, "w") as f:
+        json.dump(
+            {
+                "speaker1": {"name": speaker1["name"], "transcript": text_speaker1},
+                "speaker2": {"name": speaker2["name"], "transcript": text_speaker2},
+                "config": config,
+            },
+            f,
+            indent=2,
+        )
+    print("Transcripts saved to ", transcript_file)
     return text_speaker1, text_speaker2
 
 

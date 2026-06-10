@@ -83,8 +83,10 @@ file with `--config path/to/my_dialogue.json`):
 - plus `output_file`, `max_length` (1024 ≈ 80 s; 12.5 frames/s), and sampling
   parameters (`temperature`, `top_k`, `top_p`).
 
-Output: a stereo WAV (channel 1 = speaker 1, channel 2 = speaker 2), separate
-`_c1`/`_c2` mono files, and both transcripts printed to stdout.
+Output (in `output_dir`, default `outputs/`): a stereo WAV (channel 1 =
+speaker 1, channel 2 = speaker 2), separate `_c1`/`_c2` mono files, and a
+`<name>.json` with both transcripts plus the config that produced them. The
+transcripts are also printed to stdout.
 
 ## Batch inference / paper reproduction
 

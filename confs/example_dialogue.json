@@ -13,6 +13,7 @@
     "backchannels": 2,
     "interruptions": 2
   },
+  "output_dir": "outputs",
   "output_file": "choose_your_name.wav",
   "max_length": 1024,
   "temperature": 0.9,

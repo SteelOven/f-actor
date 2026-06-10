@@ -96,9 +96,11 @@ with the following options per speaker:
 - **`starts`** (which speaker begins the conversation)
 - **`backchannels`** / **`interruptions`** (behavior instruction counts)
 
-plus top-level `output_file`, `max_length`, and sampling parameters
-(`temperature`, `top_k`, `top_p`). The generated transcripts of both speakers
-are printed at the end.
+plus top-level `output_dir` (default `outputs/`), `output_file`, `max_length`,
+and sampling parameters (`temperature`, `top_k`, `top_p`). The generated audio
+(stereo + one mono file per speaker) is written to `output_dir`, together with
+a `<name>.json` containing both transcripts and the config that produced them;
+the transcripts are also printed at the end.
 
 To run the script, use:
 
