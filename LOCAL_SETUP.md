@@ -73,15 +73,15 @@ First run downloads ~10.5 GB of model weights from HuggingFace into
 used: `transformers` loads `model.safetensors`, the custom audio heads load
 from the sharded files) plus the NanoCodec checkpoint via NeMo.
 
-Edit the block at the bottom of `training/inference_example.py` to choose:
+The dialogue is configured in `confs/example_dialogue.json` (or pass your own
+file with `--config path/to/my_dialogue.json`):
 
-- the two speakers (`Tom`, `Brian`, `Gweneth`, `Rebeka` — each has a
-  precomputed voice embedding in `training/example_speakers/`),
-- one narrative **per speaker** (each side only sees its own instructions),
-- who starts, and the output filename.
-
-Behavior controls (backchannel / interruption counts) are part of the prompt
-text in `prepare_prompt()` — edit them there.
+- per speaker: `name` (`Tom`, `Brian`, `Gweneth`, `Rebeka` — each has a
+  precomputed voice embedding in `training/example_speakers/`), `narrative`
+  (each side only sees its own instructions), `starts`, and the behavior
+  controls `backchannels` / `interruptions`,
+- plus `output_file`, `max_length` (1024 ≈ 80 s; 12.5 frames/s), and sampling
+  parameters (`temperature`, `top_k`, `top_p`).
 
 Output: a stereo WAV (channel 1 = speaker 1, channel 2 = speaker 2), separate
 `_c1`/`_c2` mono files, and both transcripts printed to stdout.
