@@ -33,10 +33,15 @@ def load_model():
     config.use_speaker_embedding = True
     config.calc_loss_on_c1_only = False
 
+    # The checkpoint is fp32 (~5.2 GB of weights); on CUDA load in fp16 so the
+    # model plus KV cache fits 6 GB cards. CPU/MPS keep fp32.
+    dtype = torch.float16 if device.type == "cuda" else torch.float32
+
     # load model (if num_dsu < 1, this will be the normal model)
     model = model_cls.from_pretrained(
         model_id,
         config=config,
+        dtype=dtype,
     ).to(device)
 
     # set some useful paremters needed for forward passes
@@ -46,6 +51,7 @@ def load_model():
     model.init_or_load_speaker_embed_proj(model_path=model_id)
     model.init_or_load_audio_heads(model_path=model_id)
     model.init_or_load_audio_embeds(model_path=model_id)
+    model.to(dtype)  # the heads/embeds above are created in fp32
     model.eval()
     return model, tokenizer
 

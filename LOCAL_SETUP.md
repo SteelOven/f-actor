@@ -13,6 +13,9 @@ What to expect:
 | M1 Pro (MPS) | a few minutes |
 | x86 laptop CPU | 5–15+ minutes |
 
+On CUDA the model loads in **fp16** (the fp32 checkpoint alone is ~5.2 GB),
+so it fits 6 GB cards like a GTX 1660 Ti. CPU and MPS keep fp32.
+
 This is **offline** dialogue generation (two model instances talking to each
 other) — not a real-time voice interface.
 
@@ -41,6 +44,16 @@ uv venv --python 3.10 && source .venv/bin/activate
 uv pip install torch
 uv pip install -e .
 ```
+
+### Windows + NVIDIA (WSL2)
+
+Use the **Linux + NVIDIA** path above inside a WSL2 distro (e.g. Ubuntu).
+The only driver needed is the regular NVIDIA driver **on Windows** — do not
+install a Linux driver or CUDA toolkit inside WSL; the default torch wheel
+bundles the CUDA runtime. Verify the GPU is visible with `nvidia-smi` inside
+WSL before installing. `nemo-toolkit[tts]` installs normally (WSL counts as
+Linux). Budget ~25 GB of disk in the WSL VM: 10.5 GB weights + ~3 GB torch
++ NeMo's dependencies.
 
 Notes:
 

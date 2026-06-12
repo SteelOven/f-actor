@@ -570,6 +570,9 @@ class DSUModel(ModelInitializerLoader):
         Apply temperature scaling, top-k filtering, and top-p (nucleus) filtering
         to logits, then return filtered probabilities.
         """
+        # sample in fp32: fp16 softmax/cumsum over the 128k vocab loses precision
+        logits = logits.float()
+
         # temperature
 
         if temperature != 1.0:
