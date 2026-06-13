@@ -1,0 +1,37 @@
+# Target words for OOV experiments, grouped by Behavior-SD training-speech
+# frequency (see scripts/analysis/behavior_sd_vocab.tsv). The band each word
+# lands in is computed by generate_oov_configs.py; counts here are just a guide
+# and may drift if the vocab table is rebuilt.
+#
+# Lines starting with '#' and blank lines are ignored.
+
+# --- frequent (>100 spoken tokens): control group, model says these easily ---
+water
+money
+recipe
+photosynthesis
+
+# --- medium (11-100): seen, but not common ---
+algorithm
+galaxy
+mitosis
+sourdough
+
+# --- rare (1-10): a handful of training examples ---
+enzyme
+asteroid
+molecule
+petrichor
+defenestration
+kombucha
+
+# --- oov (0 spoken, 0 narrative): never seen at all ---
+schadenfreude
+kubernetes
+borborygmus
+photolithography
+perestroika
+quokka
+tardigrade
+cryptocurrency
+serverless
