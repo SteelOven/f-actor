@@ -31,3 +31,9 @@ trained_models
 hf_models/
 outputs/
 confs/oov/
+
+# Local marimo session cache
+__marimo__/
+
+# Personal symlink into university notes (not part of the repo)
+Topic Oov Full-Duplex
