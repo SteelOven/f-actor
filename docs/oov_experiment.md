@@ -67,13 +67,27 @@ It writes the configs plus a `manifest.tsv` (word, counts, band, repeat, config
 path, audio path) that is the index for analysis — every generated dialogue is
 one row, annotated with the band, so you can group transcript results by band.
 
-### 3. Inference — generate and transcribe
+### 3. Inference — generate (and, optionally, transcribe)
 
 `training/inference_example.py --config <file>` loads F-Actor, generates the
-dialogue audio, and writes a sibling transcript `.json` next to the `.wav`
-(speaker1 text, speaker2 text, and the config used). Reading the transcript
-tells you whether the target word survived; the audio tells you how it was
-pronounced.
+dialogue audio, and writes one run record `.json` next to the `.wav` (`meta`
+from the config, `config`, `audio` paths, and `generation` — speaker1/speaker2
+text). That's everything needed to check whether the target word survived in
+the model's own plan; the audio tells you how it was actually pronounced.
+
+ASR + word-fidelity grading merge into that *same* file rather than a second
+one, via `scripts/analysis/oov_common.enrich_run()`. Two ways to run it:
+
+- **Separate step (default, good for small local runs)**: generate first,
+  transcribe later with `scripts/analysis/analyze_oov.py` (whole manifest) or
+  `scripts/analysis/transcribe_oov.py <wav>` (one file at a time).
+- **One pass (useful when batching, e.g. on a cluster)**: pass `--transcribe`
+  (and optionally `--asr-model`) to `inference_example.py` so Whisper runs
+  immediately after generation, in the same process, before the wav ever
+  leaves local disk.
+
+Either path is idempotent per ASR model — re-running doesn't re-transcribe or
+clobber a different model's results, it just fills in whatever's missing.
 
 ## Running the experiment
 
@@ -106,8 +120,10 @@ noisy, so >1 helps), `--speakers Tom,Brian` (must be valid speakers),
 
 ## Reading the results
 
-Open `confs/oov/manifest.tsv` and, for each row, the matching transcript in
-`outputs/oov/<word>_r<n>.json`. For each target word ask:
+Open `confs/oov/manifest.tsv` and, for each row, the matching run record in
+`outputs/oov/<word>_r<n>.json` (run `analyze_oov.py` first if you haven't
+transcribed yet — it fills in `asr`/`grading` for every row and also writes
+the aggregate `outputs/oov/analysis.tsv`). For each target word ask:
 
 1. **Did the word appear at all** in speaker1's transcript? (it was instructed
    to use it several times)

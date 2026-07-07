@@ -54,8 +54,15 @@ def load_vocab(path):
     return table
 
 
-def make_config(word, speaker1, speaker2, rep, args):
+def make_config(word, speaker1, speaker2, rep, args, speech_count, narrative_count, band):
     return {
+        "meta": {
+            "word": word,
+            "band": band,
+            "repeat": rep,
+            "speech_count": speech_count,
+            "narrative_count": narrative_count,
+        },
         "speaker1": {
             "name": speaker1,
             "narrative": NARRATIVE_EXPLAINER.format(partner=speaker2, word=word),
@@ -119,7 +126,10 @@ def main():
             speech_count, narrative_count = vocab.get(word, (0, 0))
             band = get_band(speech_count, narrative_count)
             for rep in range(1, args.repeats + 1):
-                config = make_config(word, speaker1, speaker2, rep, args)
+                config = make_config(
+                    word, speaker1, speaker2, rep, args,
+                    speech_count, narrative_count, band,
+                )
                 config_path = os.path.join(args.outdir, f"{word}_r{rep}.json")
                 with open(config_path, "w") as f:
                     json.dump(config, f, indent=2)

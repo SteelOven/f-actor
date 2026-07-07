@@ -183,20 +183,46 @@ def run_inference(config):
     text_speaker1 = remove_special_tokens(tokenizer.decode(generated_text_ids[0], skip_special_tokens=False))
     text_speaker2 = remove_special_tokens(tokenizer.decode(generated_text_ids[1], skip_special_tokens=False))
 
-    # save transcripts next to the audio
-    transcript_file = os.path.splitext(out_audio_file)[0] + ".json"
-    with open(transcript_file, "w") as f:
+    # save one canonical run record next to the audio (config, transcripts,
+    # audio paths -- and later, in place, whatever enrich_run() adds)
+    base, ext = os.path.splitext(out_audio_file)
+    record_file = base + ".json"
+    with open(record_file, "w") as f:
         json.dump(
             {
-                "speaker1": {"name": speaker1["name"], "transcript": text_speaker1},
-                "speaker2": {"name": speaker2["name"], "transcript": text_speaker2},
+                "meta": config.get("meta", {}),
                 "config": config,
+                "audio": {
+                    "wav": os.path.basename(out_audio_file),
+                    "c1": os.path.basename(f"{base}_c1{ext}"),
+                    "c2": os.path.basename(f"{base}_c2{ext}"),
+                },
+                "generation": {
+                    "speaker1": {"name": speaker1["name"], "transcript": text_speaker1},
+                    "speaker2": {"name": speaker2["name"], "transcript": text_speaker2},
+                },
             },
             f,
             indent=2,
         )
-    print("Transcripts saved to ", transcript_file)
-    return text_speaker1, text_speaker2
+    print("Run record saved to ", record_file)
+    return text_speaker1, text_speaker2, record_file
+
+
+def transcribe_run(record_file, asr_model):
+    """Add an ASR transcript (and word grading, if the config has a target
+    word) to the run record in place -- for --transcribe, the one-pass path
+    used e.g. on the cluster. Same merge logic as the standalone
+    analyze_oov.py / transcribe_oov.py scripts (scripts/analysis/oov_common.py).
+    """
+    import sys
+
+    sys.path.insert(
+        0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts", "analysis")
+    )
+    from oov_common import ASR, enrich_run
+
+    enrich_run(record_file, ASR(asr_model))
 
 
 def main():
@@ -207,6 +233,18 @@ def main():
         "--config",
         default="confs/example_dialogue.json",
         help="Path to a dialogue config JSON (see confs/example_dialogue.json).",
+    )
+    parser.add_argument(
+        "--transcribe",
+        action="store_true",
+        help="Also ASR-transcribe the explainer channel and merge it into the "
+        "run record in one pass (requires the 'eval' extra: jiwer, rapidfuzz). "
+        "Leave off to keep transcription a separate later step.",
+    )
+    parser.add_argument(
+        "--asr-model",
+        default="openai/whisper-base.en",
+        help="Whisper model to use with --transcribe.",
     )
     args = parser.parse_args()
 
@@ -226,11 +264,16 @@ def main():
                 f"Invalid speaker '{spk['name']}', please choose speakers from {speakers}!"
             )
 
-    text_speaker1, text_speaker2 = run_inference(config)
+    text_speaker1, text_speaker2, record_file = run_inference(config)
 
     print("\n=== Transcripts ===")
     print(f"{config['speaker1']['name']}: {text_speaker1}")
     print(f"{config['speaker2']['name']}: {text_speaker2}")
+
+    if args.transcribe:
+        print("\nTranscribing explainer channel...")
+        transcribe_run(record_file, args.asr_model)
+        print(f"ASR + grading merged into {record_file}")
 
 
 if __name__ == "__main__":
