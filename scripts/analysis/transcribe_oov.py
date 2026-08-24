@@ -4,17 +4,19 @@ record.
 Hand it one audio file from outputs/oov/ (the mix or a _c1/_c2 channel) and it:
   1. resolves the mix stem back to its run record, outputs/oov/<mix_stem>.json
      (written by training/inference_example.py),
-  2. transcribes the explainer (_c1) channel with Whisper (cached HF model),
+  2. transcribes the explainer (_c1) channel via PersonaPlex's asr_backends/
+     registry (see oov_common.ASR; run this via $TOOLS_PYTHON, not this
+     repo's own venv),
   3. looks up the target word from confs/oov/manifest.tsv (falling back to
      parsing the filename if the manifest has no matching row),
   4. merges the ASR transcript + word-fidelity grading into the run record in
      place -- via scripts/analysis/oov_common.enrich_run(), the same function
-     analyze_oov.py and training/inference_example.py's --transcribe flag use,
-     so there's exactly one JSON per run no matter which of the three you run.
+     analyze_oov.py uses, so there's exactly one JSON per run no matter which
+     of the two you run.
 
 Usage:
-    uv run python scripts/analysis/transcribe_oov.py outputs/oov/algorithm_r1.wav
-    python scripts/analysis/transcribe_oov.py outputs/oov/borborygmus_r1_c1.wav --model openai/whisper-small.en
+    $TOOLS_PYTHON scripts/analysis/transcribe_oov.py outputs/oov/algorithm_r1.wav
+    $TOOLS_PYTHON scripts/analysis/transcribe_oov.py outputs/oov/borborygmus_r1_c1.wav --asr-backend whisper-large-v3
 """
 
 import argparse
@@ -26,7 +28,7 @@ from oov_common import ASR, enrich_run
 
 DEFAULT_MANIFEST = "confs/oov/manifest.tsv"
 DEFAULT_OUTDIR = "outputs/oov"
-DEFAULT_MODEL = "openai/whisper-base.en"
+DEFAULT_ASR_BACKEND = "whisper-large-v3"
 
 # Trailing channel suffix produced by the dialogue model: foo_r1_c1.wav etc.
 CHANNEL_RE = re.compile(r"_(c[12])$")
@@ -64,7 +66,10 @@ def main():
     parser.add_argument("wav", help="Path to one OOV wav (mix or _c1/_c2 channel).")
     parser.add_argument("--manifest", default=DEFAULT_MANIFEST)
     parser.add_argument("--outdir", default=DEFAULT_OUTDIR)
-    parser.add_argument("--model", default=DEFAULT_MODEL)
+    parser.add_argument(
+        "--asr-backend", default=DEFAULT_ASR_BACKEND,
+        help="registered backend name from PersonaPlex's asr_backends/ (default: %(default)s)",
+    )
     args = parser.parse_args()
 
     if not os.path.exists(args.wav):
@@ -82,9 +87,9 @@ def main():
     if channel != "mix" and channel != "c1":
         print(f"note: {channel} given, but enrich_run always transcribes the c1 (explainer) channel")
 
-    record = enrich_run(record_path, ASR(args.model), word=word)
-    grading = record.get("grading", {}).get(args.model)
-    transcript = record["asr"][args.model]["transcript"]
+    record = enrich_run(record_path, ASR(args.asr_backend), word=word)
+    grading = record.get("grading", {}).get(args.asr_backend)
+    transcript = record["asr"][args.asr_backend]["transcript"]
 
     print(f"transcript: {transcript}")
     if grading:
