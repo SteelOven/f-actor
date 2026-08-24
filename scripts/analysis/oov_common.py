@@ -8,22 +8,24 @@ stages instead of being duplicated into a second file:
   1. training/inference_example.py writes `meta`, `config`, `audio`, and
      `generation` (the model's own text-stream transcripts) when it creates
      the dialogue.
-  2. enrich_run() adds `asr` (Whisper's transcript of the explainer channel
-     plus WER against the model's own transcript) and, if a target word is
-     known, `grading` (intact/split/substituted/dropped fidelity). It can be
-     called inline right after generation (one pass, e.g. on the cluster) or
-     later as a standalone step (analyze_oov.py, transcribe_oov.py) -- same
-     function either way.
+  2. enrich_run() adds `asr` (the ASR transcript of the explainer channel,
+     via PersonaPlex's asr_backends/ registry -- see ASR below -- plus WER
+     against the model's own transcript) and, if a target word is known,
+     `grading` (intact/split/substituted/dropped fidelity). Always a
+     standalone step (analyze_oov.py, transcribe_oov.py), run separately
+     from generation -- see run_oov_batch.py/inference_example.py, which are
+     generation-only.
 
-Both additions are keyed by ASR model name, so switching models -- or
-re-running with the same one -- never clobbers earlier results and is a
-no-op when that model's entry already exists.
+Both additions are keyed by the ASR backend name, so switching backends --
+or re-running with the same one -- never clobbers earlier results and is a
+no-op when that backend's entry already exists.
 """
 
 import json
 import os
 import re
 import string
+import sys
 
 from rapidfuzz import fuzz
 
@@ -78,24 +80,38 @@ def grade_word(text, word):
 
 
 class ASR:
-    """Lazy, single-load Whisper wrapper.
+    """Lazy, single-load ASR wrapper around PersonaPlex's asr_backends
+    registry, so both models' outputs are graded by the exact same ASR
+    implementation instead of two different ones (this used to wrap a
+    transformers whisper-base.en pipeline directly).
+
+    Reached via PERSONAPLEX_DIR (see cluster_env.sh; defaults to a sibling
+    checkout for local dev) rather than a package dependency, the same way
+    training/*.py already reaches this repo's own scripts/analysis/ via
+    sys.path. `model` is a registry name (see asr_backends/registry.py),
+    e.g. "whisper-large-v3", not a HuggingFace model id.
 
     No file-level caching here -- callers cache inside the run record itself
-    (see enrich_run), so loading the pipeline once and calling .transcribe()
+    (see enrich_run), so loading the backend once and calling .transcribe()
     per wav is all this needs to do.
     """
 
     def __init__(self, model):
         self.model = model
-        self._pipe = None
+        self._backend = None
 
     def transcribe(self, wav_path):
-        if self._pipe is None:
-            from transformers import pipeline
+        if self._backend is None:
+            personaplex_dir = os.environ.get(
+                "PERSONAPLEX_DIR", os.path.join(os.path.dirname(__file__), "..", "..", "..", "personaplex")
+            )
+            if personaplex_dir not in sys.path:
+                sys.path.insert(0, personaplex_dir)
+            from asr_backends import get_backend
 
-            print(f"[loading {self.model} once ...]")
-            self._pipe = pipeline("automatic-speech-recognition", model=self.model)
-        return self._pipe(wav_path, chunk_length_s=30)["text"].strip()
+            print(f"[loading asr_backends:{self.model} once ...]")
+            self._backend = get_backend(self.model)
+        return self._backend.transcribe(wav_path).text
 
 
 def load_run(run_json_path):
@@ -114,10 +130,10 @@ def enrich_run(run_json_path, asr, word=None):
     place. Idempotent: a model already present is not re-transcribed.
 
     `word` overrides `record["meta"]["word"]` if given -- analyze_oov.py
-    always knows the word from the manifest; inference_example.py's inline
-    --transcribe path falls back to whatever the config's own `meta` carries
-    (which is empty for a non-OOV, plain dialogue config, so grading is
-    simply skipped there and only the ASR transcript is added).
+    always knows the word from the manifest; transcribe_oov.py falls back to
+    whatever the config's own `meta` carries (which is empty for a non-OOV,
+    plain dialogue config, so grading is simply skipped there and only the
+    ASR transcript is added).
     """
     record = load_run(run_json_path)
     target_word = word if word is not None else record.get("meta", {}).get("word")

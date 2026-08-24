@@ -3,9 +3,8 @@
 For every generated run in confs/oov/manifest.tsv this ensures the run's own
 record (outputs/oov/<stem>.json, written by training/inference_example.py)
 has an ASR transcript and word-fidelity grading merged in -- via
-scripts/analysis/oov_common.enrich_run(), the same function
-training/inference_example.py's --transcribe flag calls inline -- then reads
-back every record to report, per run and per frequency band:
+scripts/analysis/oov_common.enrich_run() -- then reads back every record to
+report, per run and per frequency band:
 
   * target-word fidelity in each stream, graded intact/split/substituted/dropped
     (a single word, so character similarity -- not WER -- is the right tool);
@@ -16,12 +15,17 @@ The point is the *gap*: a word can be planned correctly in the text stream yet
 break in the audio (acoustic OOV) or break already in the text stream (lexical
 OOV). Grouping the gap by band is the headline result.
 
-If a run was already transcribed inline (--transcribe at generation time),
-this is a no-op for it and just reads the cached result back.
+If a run was already graded by this or transcribe_oov.py with the same
+--asr-backend, this is a no-op for it and just reads the cached result back
+(generation itself no longer does inline ASR -- see training/inference_example.py).
 
 Usage:
-    uv run python scripts/analysis/analyze_oov.py
-    uv run python scripts/analysis/analyze_oov.py --asr-model openai/whisper-base.en
+    $TOOLS_PYTHON scripts/analysis/analyze_oov.py
+    $TOOLS_PYTHON scripts/analysis/analyze_oov.py --asr-backend whisper-large-v3
+
+Run via $TOOLS_PYTHON (PersonaPlex's ASR/TTS tools venv, see cluster_env.sh),
+not this repo's own venv - ASR grading is now PersonaPlex's asr_backends/
+registry (see oov_common.ASR), which lives there.
 """
 
 import argparse
@@ -33,7 +37,10 @@ from oov_common import ASR, enrich_run, load_run
 BANDS = ["frequent", "medium", "rare", "narrative-only", "oov"]
 DEFAULT_MANIFEST = "confs/oov/manifest.tsv"
 DEFAULT_OUTDIR = "outputs/oov"
-DEFAULT_ASR = "openai/whisper-base.en"
+# whisper-large-v3, not a smaller model - OOV/rare words are exactly what ASR
+# itself struggles with too, so a weak checker risks blaming the model for
+# what's actually an ASR mistake (same reasoning as PersonaPlex's analyze_runs.py).
+DEFAULT_ASR_BACKEND = "whisper-large-v3"
 
 
 def load_manifest(path):
@@ -45,11 +52,14 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--manifest", default=DEFAULT_MANIFEST)
     ap.add_argument("--outdir", default=DEFAULT_OUTDIR)
-    ap.add_argument("--asr-model", default=DEFAULT_ASR)
+    ap.add_argument(
+        "--asr-backend", default=DEFAULT_ASR_BACKEND,
+        help="registered backend name from PersonaPlex's asr_backends/ (default: %(default)s)",
+    )
     ap.add_argument("--report", default="outputs/oov/analysis.tsv")
     args = ap.parse_args()
 
-    asr = ASR(args.asr_model)
+    asr = ASR(args.asr_backend)
     rows = load_manifest(args.manifest)
 
     results = []
