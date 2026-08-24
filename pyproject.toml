@@ -43,6 +43,7 @@ analysis = [
 # Paper evaluation metrics (eval/ scripts; some still assume CUDA)
 eval = [
     "jiwer",
+    "rapidfuzz",
     "silero-vad",
     "matplotlib",
     "hydra-core",

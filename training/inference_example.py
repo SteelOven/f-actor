@@ -112,17 +112,18 @@ def remove_special_tokens(text):
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     return cleaned
 
-def run_inference(config):
+def generate_dialogue(model, tokenizer, nanocodec_model, config):
+    """Generate one dialogue with an already-loaded model.
+
+    Split out of run_inference() so training/run_oov_batch.py can load the
+    model once and call this per config, instead of paying the full model +
+    NanoCodec load cost for every single config like run_inference() does.
+    """
     speaker1 = config["speaker1"]
     speaker2 = config["speaker2"]
     out_dir = config.get("output_dir", "outputs")
     os.makedirs(out_dir, exist_ok=True)
     out_audio_file = os.path.join(out_dir, config.get("output_file", "dialogue.wav"))
-
-    # load model and tokenizer
-    print("Loading model and tokenizer...")
-    model, tokenizer = load_model()
-    nanocodec_model = load_nanocodecs(num_codebooks=4)
 
     # prepare instructions
     print("Preparing instructions...")
@@ -209,20 +210,16 @@ def run_inference(config):
     return text_speaker1, text_speaker2, record_file
 
 
-def transcribe_run(record_file, asr_model):
-    """Add an ASR transcript (and word grading, if the config has a target
-    word) to the run record in place -- for --transcribe, the one-pass path
-    used e.g. on the cluster. Same merge logic as the standalone
-    analyze_oov.py / transcribe_oov.py scripts (scripts/analysis/oov_common.py).
+def run_inference(config):
+    """Load the model fresh and generate one dialogue -- convenience wrapper
+    for the single-config CLI path below. For many configs in one process
+    (so the model load only happens once), use training/run_oov_batch.py,
+    which loads once and calls generate_dialogue() directly per config.
     """
-    import sys
-
-    sys.path.insert(
-        0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts", "analysis")
-    )
-    from oov_common import ASR, enrich_run
-
-    enrich_run(record_file, ASR(asr_model))
+    print("Loading model and tokenizer...")
+    model, tokenizer = load_model()
+    nanocodec_model = load_nanocodecs(num_codebooks=4)
+    return generate_dialogue(model, tokenizer, nanocodec_model, config)
 
 
 def main():
@@ -233,18 +230,6 @@ def main():
         "--config",
         default="confs/example_dialogue.json",
         help="Path to a dialogue config JSON (see confs/example_dialogue.json).",
-    )
-    parser.add_argument(
-        "--transcribe",
-        action="store_true",
-        help="Also ASR-transcribe the explainer channel and merge it into the "
-        "run record in one pass (requires the 'eval' extra: jiwer, rapidfuzz). "
-        "Leave off to keep transcription a separate later step.",
-    )
-    parser.add_argument(
-        "--asr-model",
-        default="openai/whisper-base.en",
-        help="Whisper model to use with --transcribe.",
     )
     args = parser.parse_args()
 
@@ -269,11 +254,11 @@ def main():
     print("\n=== Transcripts ===")
     print(f"{config['speaker1']['name']}: {text_speaker1}")
     print(f"{config['speaker2']['name']}: {text_speaker2}")
-
-    if args.transcribe:
-        print("\nTranscribing explainer channel...")
-        transcribe_run(record_file, args.asr_model)
-        print(f"ASR + grading merged into {record_file}")
+    print(
+        f"\nRun record saved to {record_file} (generation only -- run "
+        "scripts/analysis/analyze_oov.py or transcribe_oov.py via $TOOLS_PYTHON "
+        "for ASR transcript + word grading)."
+    )
 
 
 if __name__ == "__main__":
