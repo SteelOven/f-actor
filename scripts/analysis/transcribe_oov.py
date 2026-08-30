@@ -17,6 +17,7 @@ Hand it one audio file from outputs/oov/ (the mix or a _c1/_c2 channel) and it:
 Usage:
     $TOOLS_PYTHON scripts/analysis/transcribe_oov.py outputs/oov/algorithm_r1.wav
     $TOOLS_PYTHON scripts/analysis/transcribe_oov.py outputs/oov/borborygmus_r1_c1.wav --asr-backend whisper-large-v3
+    $TOOLS_PYTHON scripts/analysis/transcribe_oov.py outputs/oov/algorithm_r1.wav --mos-backend utmos
 """
 
 import argparse
@@ -24,7 +25,7 @@ import csv
 import os
 import re
 
-from oov_common import ASR, enrich_run
+from oov_common import ASR, MOS, enrich_run
 
 DEFAULT_MANIFEST = "confs/oov/manifest.tsv"
 DEFAULT_OUTDIR = "outputs/oov"
@@ -70,6 +71,11 @@ def main():
         "--asr-backend", default=DEFAULT_ASR_BACKEND,
         help="registered backend name from PersonaPlex's asr_backends/ (default: %(default)s)",
     )
+    parser.add_argument(
+        "--mos-backend", default=None,
+        help="registered backend name from PersonaPlex's mos_backends/ (e.g. utmos). "
+             "Omit to skip naturalness scoring (default: off)",
+    )
     args = parser.parse_args()
 
     if not os.path.exists(args.wav):
@@ -87,7 +93,8 @@ def main():
     if channel != "mix" and channel != "c1":
         print(f"note: {channel} given, but enrich_run always transcribes the c1 (explainer) channel")
 
-    record = enrich_run(record_path, ASR(args.asr_backend), word=word)
+    mos = MOS(args.mos_backend) if args.mos_backend else None
+    record = enrich_run(record_path, ASR(args.asr_backend), word=word, mos=mos)
     grading = record.get("grading", {}).get(args.asr_backend)
     transcript = record["asr"][args.asr_backend]["transcript"]
 
@@ -97,6 +104,8 @@ def main():
         print(f"word '{word}': {flag} ({grading['audio_label']}, {grading['audio_score']:.0f})")
     else:
         print(f"no target word resolved for '{mix_stem}' -- grading skipped")
+    if mos:
+        print(f"naturalness ({mos.model}): {record['mos'][mos.model]['score']:.2f}")
     print(f"merged into: {record_path}")
 
 
