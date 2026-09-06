@@ -10,6 +10,12 @@ Usage:
     python scripts/analysis/generate_oov_configs.py --words hello quantum schadenfreude
     python scripts/analysis/generate_oov_configs.py --words-file mywords.txt --repeats 3
 
+    # --words-file also accepts the shared oov_wordlist.csv (see
+    # build_oov_wordlist.py) - band/frequency come from --vocab either way,
+    # the CSV's own speech_count/narrative_count/band columns are ignored so
+    # there's one source of truth for those numbers, not two.
+    python scripts/analysis/generate_oov_configs.py --words-file ../personaplex/oov_wordlist.csv
+
 Then run the generated configs:
     for f in confs/oov/*.json; do
         python training/inference_example.py --config "$f"
@@ -17,8 +23,11 @@ Then run the generated configs:
 """
 
 import argparse
+import csv
 import json
 import os
+
+from oov_vocab import get_band, load_vocab
 
 VOCAB_TABLE = "scripts/analysis/behavior_sd_vocab.tsv"
 
@@ -32,30 +41,15 @@ NARRATIVE_LISTENER = (
 )
 
 
-def get_band(speech_count, narrative_count):
-    if speech_count > 100:
-        return "frequent"
-    if speech_count > 10:
-        return "medium"
-    if speech_count > 0:
-        return "rare"
-    if narrative_count > 0:
-        return "narrative-only"
-    return "oov"
-
-
-def load_vocab(path):
-    table = {}
-    with open(path) as f:
-        next(f)
-        for line in f:
-            word, speech_count, narrative_count = line.rstrip("\n").split("\t")
-            table[word] = (int(speech_count), int(narrative_count))
-    return table
-
-
-def make_config(word, speaker1, speaker2, rep, args):
+def make_config(word, speaker1, speaker2, rep, args, speech_count, narrative_count, band):
     return {
+        "meta": {
+            "word": word,
+            "band": band,
+            "repeat": rep,
+            "speech_count": speech_count,
+            "narrative_count": narrative_count,
+        },
         "speaker1": {
             "name": speaker1,
             "narrative": NARRATIVE_EXPLAINER.format(partner=speaker2, word=word),
@@ -79,6 +73,20 @@ def make_config(word, speaker1, speaker2, rep, args):
     }
 
 
+def load_words_file(path: str) -> list[str]:
+    """One word per line (# comments ok), or the shared oov_wordlist.csv -
+    detected by extension so the same --words-file flag accepts either."""
+    if path.endswith(".csv"):
+        with open(path, newline="") as f:
+            return [row["word"].strip().lower() for row in csv.DictReader(f) if row["word"].strip()]
+    with open(path) as f:
+        return [
+            line.strip().lower()
+            for line in f
+            if line.strip() and not line.startswith("#")
+        ]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--words", nargs="+", default=[], help="Target words.")
@@ -97,12 +105,7 @@ def main():
 
     words = [w.lower() for w in args.words]
     if args.words_file:
-        with open(args.words_file) as f:
-            words += [
-                line.strip().lower()
-                for line in f
-                if line.strip() and not line.startswith("#")
-            ]
+        words += load_words_file(args.words_file)
     if not words:
         parser.error("No words given (use --words or --words-file).")
 
@@ -119,7 +122,10 @@ def main():
             speech_count, narrative_count = vocab.get(word, (0, 0))
             band = get_band(speech_count, narrative_count)
             for rep in range(1, args.repeats + 1):
-                config = make_config(word, speaker1, speaker2, rep, args)
+                config = make_config(
+                    word, speaker1, speaker2, rep, args,
+                    speech_count, narrative_count, band,
+                )
                 config_path = os.path.join(args.outdir, f"{word}_r{rep}.json")
                 with open(config_path, "w") as f:
                     json.dump(config, f, indent=2)

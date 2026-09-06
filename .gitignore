@@ -40,3 +40,8 @@ Topic Oov Full-Duplex
 /.idea
 /UniCluster
 /CLUSTER_SETUP.md
+
+.idea/*
+/CLUSTER_SETUP.md
+/LOCAL_SETUP.md
+/UniCluster

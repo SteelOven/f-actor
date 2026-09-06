@@ -112,17 +112,18 @@ def remove_special_tokens(text):
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     return cleaned
 
-def run_inference(config):
+def generate_dialogue(model, tokenizer, nanocodec_model, config):
+    """Generate one dialogue with an already-loaded model.
+
+    Split out of run_inference() so training/run_oov_batch.py can load the
+    model once and call this per config, instead of paying the full model +
+    NanoCodec load cost for every single config like run_inference() does.
+    """
     speaker1 = config["speaker1"]
     speaker2 = config["speaker2"]
     out_dir = config.get("output_dir", "outputs")
     os.makedirs(out_dir, exist_ok=True)
     out_audio_file = os.path.join(out_dir, config.get("output_file", "dialogue.wav"))
-
-    # load model and tokenizer
-    print("Loading model and tokenizer...")
-    model, tokenizer = load_model()
-    nanocodec_model = load_nanocodecs(num_codebooks=4)
 
     # prepare instructions
     print("Preparing instructions...")
@@ -183,20 +184,42 @@ def run_inference(config):
     text_speaker1 = remove_special_tokens(tokenizer.decode(generated_text_ids[0], skip_special_tokens=False))
     text_speaker2 = remove_special_tokens(tokenizer.decode(generated_text_ids[1], skip_special_tokens=False))
 
-    # save transcripts next to the audio
-    transcript_file = os.path.splitext(out_audio_file)[0] + ".json"
-    with open(transcript_file, "w") as f:
+    # save one canonical run record next to the audio (config, transcripts,
+    # audio paths -- and later, in place, whatever enrich_run() adds)
+    base, ext = os.path.splitext(out_audio_file)
+    record_file = base + ".json"
+    with open(record_file, "w") as f:
         json.dump(
             {
-                "speaker1": {"name": speaker1["name"], "transcript": text_speaker1},
-                "speaker2": {"name": speaker2["name"], "transcript": text_speaker2},
+                "meta": config.get("meta", {}),
                 "config": config,
+                "audio": {
+                    "wav": os.path.basename(out_audio_file),
+                    "c1": os.path.basename(f"{base}_c1{ext}"),
+                    "c2": os.path.basename(f"{base}_c2{ext}"),
+                },
+                "generation": {
+                    "speaker1": {"name": speaker1["name"], "transcript": text_speaker1},
+                    "speaker2": {"name": speaker2["name"], "transcript": text_speaker2},
+                },
             },
             f,
             indent=2,
         )
-    print("Transcripts saved to ", transcript_file)
-    return text_speaker1, text_speaker2
+    print("Run record saved to ", record_file)
+    return text_speaker1, text_speaker2, record_file
+
+
+def run_inference(config):
+    """Load the model fresh and generate one dialogue -- convenience wrapper
+    for the single-config CLI path below. For many configs in one process
+    (so the model load only happens once), use training/run_oov_batch.py,
+    which loads once and calls generate_dialogue() directly per config.
+    """
+    print("Loading model and tokenizer...")
+    model, tokenizer = load_model()
+    nanocodec_model = load_nanocodecs(num_codebooks=4)
+    return generate_dialogue(model, tokenizer, nanocodec_model, config)
 
 
 def main():
@@ -226,11 +249,16 @@ def main():
                 f"Invalid speaker '{spk['name']}', please choose speakers from {speakers}!"
             )
 
-    text_speaker1, text_speaker2 = run_inference(config)
+    text_speaker1, text_speaker2, record_file = run_inference(config)
 
     print("\n=== Transcripts ===")
     print(f"{config['speaker1']['name']}: {text_speaker1}")
     print(f"{config['speaker2']['name']}: {text_speaker2}")
+    print(
+        f"\nRun record saved to {record_file} (generation only -- run "
+        "scripts/analysis/analyze_oov.py or transcribe_oov.py via $TOOLS_PYTHON "
+        "for ASR transcript + word grading)."
+    )
 
 
 if __name__ == "__main__":

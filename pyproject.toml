@@ -50,6 +50,7 @@ analysis = [
 # Paper evaluation metrics (eval/ scripts; some still assume CUDA)
 eval = [
     "jiwer",
+    "rapidfuzz",
     "silero-vad",
     "matplotlib",
     "hydra-core",
@@ -79,3 +80,6 @@ line-length = 88
 [tool.isort]
 line_length = 88
 profile = "black"
+
+[lint]
+ignore = ["F401", "F841", "E501"]

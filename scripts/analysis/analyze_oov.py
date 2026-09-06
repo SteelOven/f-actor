@@ -1,14 +1,10 @@
 """Aggregate OOV-experiment results across the two F-Actor output streams.
 
-For every generated run in confs/oov/manifest.tsv this joins:
-
-  * the model's **inner monologue** -- the text stream it generated for the
-    explainer (speaker1), saved in outputs/oov/<stem>.json by
-    inference_example.py; and
-  * the **explainer audio** -- the _c1 channel wav, transcribed here with
-    Whisper (cached under outputs/oov/transcripts/).
-
-and reports, per run and per frequency band:
+For every generated run in confs/oov/manifest.tsv this ensures the run's own
+record (outputs/oov/<stem>.json, written by training/inference_example.py)
+has an ASR transcript and word-fidelity grading merged in -- via
+scripts/analysis/oov_common.enrich_run() -- then reads back every record to
+report, per run and per frequency band:
 
   * target-word fidelity in each stream, graded intact/split/substituted/dropped
     (a single word, so character similarity -- not WER -- is the right tool);
@@ -19,76 +15,37 @@ The point is the *gap*: a word can be planned correctly in the text stream yet
 break in the audio (acoustic OOV) or break already in the text stream (lexical
 OOV). Grouping the gap by band is the headline result.
 
+If a run was already graded by this or transcribe_oov.py with the same
+--asr-backend, this is a no-op for it and just reads the cached result back
+(generation itself no longer does inline ASR -- see training/inference_example.py).
+
+Naturalness (MOS) scoring is opt-in via --mos-backend (e.g. "utmos", see
+PersonaPlex's mos_backends/registry.py) - off by default, since unlike ASR
+it's a heavier, newer-Python-only dependency not every tools-venv has.
+
 Usage:
-    uv run python scripts/analysis/analyze_oov.py
-    uv run python scripts/analysis/analyze_oov.py --asr-model openai/whisper-base.en
+    $TOOLS_PYTHON scripts/analysis/analyze_oov.py
+    $TOOLS_PYTHON scripts/analysis/analyze_oov.py --asr-backend whisper-large-v3
+    $TOOLS_PYTHON scripts/analysis/analyze_oov.py --mos-backend utmos
+
+Run via $TOOLS_PYTHON (PersonaPlex's ASR/TTS tools venv, see cluster_env.sh),
+not this repo's own venv - ASR grading and MOS scoring are both PersonaPlex
+registries (see oov_common.ASR / oov_common.MOS), which live there.
 """
 
 import argparse
 import csv
-import json
 import os
-import re
-import string
 
-from rapidfuzz import fuzz
+from oov_common import ASR, MOS, enrich_run, load_run
 
 BANDS = ["frequent", "medium", "rare", "narrative-only", "oov"]
 DEFAULT_MANIFEST = "confs/oov/manifest.tsv"
 DEFAULT_OUTDIR = "outputs/oov"
-DEFAULT_TRANSCRIPTS = "outputs/oov/transcripts"
-DEFAULT_ASR = "openai/whisper-base.en"
-
-_PUNCT = str.maketrans("", "", string.punctuation)
-
-
-def normalize(text):
-    """Lowercase, drop punctuation, collapse whitespace."""
-    text = text.lower().translate(_PUNCT)
-    return re.sub(r"\s+", " ", text).strip()
-
-
-def grade_word(text, word):
-    """Grade how well `word` survives in `text`.
-
-    Returns (label, score, evidence) where score is a 0-100 character
-    similarity of the target word to the closest span in the text. We test the
-    text both as-is and space-collapsed, so a split rendering ("schaden freude")
-    still scores as essentially the whole word.
-
-        intact       exact whole-word hit, or >=90 similar
-        split        word is there once spaces are removed (e.g. "schaden freude")
-        substituted  a near miss, 65-90 similar (e.g. "kobiola", "arum")
-        dropped      nothing close (<65)
-    """
-    norm = normalize(text)
-    w = normalize(word)
-    if not w:
-        return "n/a", 0.0, ""
-
-    # exact whole-word
-    if re.search(rf"\b{re.escape(w)}\b", norm):
-        return "intact", 100.0, w
-
-    tokens = norm.split()
-    collapsed = norm.replace(" ", "")
-    # split: the letters are contiguous once spaces are removed
-    if w in collapsed and w not in tokens:
-        return "split", 100.0, "(space-split)"
-
-    # otherwise: best similarity of the word against any 1-3 token window
-    best, span = 0.0, ""
-    for n in (1, 2, 3):
-        for i in range(len(tokens) - n + 1):
-            cand = "".join(tokens[i : i + n])
-            r = fuzz.ratio(w, cand)
-            if r > best:
-                best, span = r, " ".join(tokens[i : i + n])
-    if best >= 90:
-        return "intact", best, span
-    if best >= 65:
-        return "substituted", best, span
-    return "dropped", best, span
+# whisper-large-v3, not a smaller model - OOV/rare words are exactly what ASR
+# itself struggles with too, so a weak checker risks blaming the model for
+# what's actually an ASR mistake (same reasoning as PersonaPlex's analyze_runs.py).
+DEFAULT_ASR_BACKEND = "whisper-large-v3"
 
 
 def load_manifest(path):
@@ -96,88 +53,55 @@ def load_manifest(path):
         return list(csv.DictReader(f, delimiter="\t"))
 
 
-def load_monologue(outdir, stem):
-    """Inner-monologue transcripts written by inference_example.py."""
-    path = os.path.join(outdir, f"{stem}.json")
-    if not os.path.exists(path):
-        return None
-    with open(path) as f:
-        d = json.load(f)
-    return d["speaker1"]["transcript"], d["speaker2"]["transcript"]
-
-
-class ASR:
-    """Lazy, single-load Whisper wrapper that caches transcripts to disk."""
-
-    def __init__(self, model, cache_dir):
-        self.model = model
-        self.slug = model.rsplit("/", 1)[-1].replace("whisper-", "")
-        self.cache_dir = cache_dir
-        self._pipe = None
-        os.makedirs(cache_dir, exist_ok=True)
-
-    def transcribe(self, wav):
-        stem = os.path.splitext(os.path.basename(wav))[0]
-        cache = os.path.join(self.cache_dir, f"{stem}.{self.slug}.json")
-        if os.path.exists(cache):
-            with open(cache) as f:
-                return json.load(f)["transcript"]
-        if self._pipe is None:
-            from transformers import pipeline
-
-            print(f"[loading {self.model} once ...]")
-            self._pipe = pipeline("automatic-speech-recognition", model=self.model)
-        text = self._pipe(wav, chunk_length_s=30)["text"].strip()
-        with open(cache, "w") as f:
-            json.dump({"wav": wav, "model": self.model, "transcript": text}, f, indent=2)
-        return text
-
-
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--manifest", default=DEFAULT_MANIFEST)
     ap.add_argument("--outdir", default=DEFAULT_OUTDIR)
-    ap.add_argument("--transcripts", default=DEFAULT_TRANSCRIPTS)
-    ap.add_argument("--asr-model", default=DEFAULT_ASR)
+    ap.add_argument(
+        "--asr-backend", default=DEFAULT_ASR_BACKEND,
+        help="registered backend name from PersonaPlex's asr_backends/ (default: %(default)s)",
+    )
+    ap.add_argument(
+        "--mos-backend", default=None,
+        help="registered backend name from PersonaPlex's mos_backends/ (e.g. utmos). "
+             "Omit to skip naturalness scoring (default: off)",
+    )
     ap.add_argument("--report", default="outputs/oov/analysis.tsv")
     args = ap.parse_args()
 
-    from jiwer import wer
-
-    asr = ASR(args.asr_model, args.transcripts)
+    asr = ASR(args.asr_backend)
+    mos = MOS(args.mos_backend) if args.mos_backend else None
     rows = load_manifest(args.manifest)
 
     results = []
     for row in rows:
         stem = os.path.splitext(os.path.basename(row["audio"]))[0]  # e.g. algorithm_r2
-        mono = load_monologue(args.outdir, stem)
-        if mono is None:
+        record_path = os.path.join(args.outdir, f"{stem}.json")
+        if not os.path.exists(record_path):
             continue  # not generated yet
-        mono_s1, _mono_s2 = mono
-        c1_wav = os.path.join(args.outdir, f"{stem}_c1.wav")
-        if not os.path.exists(c1_wav):
+        record = load_run(record_path)
+        if "audio" not in record or not os.path.exists(
+            os.path.join(args.outdir, record["audio"]["c1"])
+        ):
             continue
-        audio_s1 = asr.transcribe(c1_wav)
 
-        word = row["word"]
-        m_label, m_score, m_ev = grade_word(mono_s1, word)
-        a_label, a_score, a_ev = grade_word(audio_s1, word)
-        try:
-            render_wer = wer(normalize(mono_s1), normalize(audio_s1))
-        except ValueError:
-            render_wer = float("nan")
+        record = enrich_run(record_path, asr, word=row["word"], mos=mos)
+        grading = record["grading"][asr.model]
+        asr_result = record["asr"][asr.model]
+        mos_score = record["mos"][mos.model]["score"] if mos else None
 
         results.append(
             {
-                "word": word,
+                "word": row["word"],
                 "band": row["band"],
                 "repeat": row["repeat"],
-                "mono_label": m_label,
-                "mono_score": round(m_score, 1),
-                "audio_label": a_label,
-                "audio_score": round(a_score, 1),
-                "audio_evidence": a_ev,
-                "render_wer": round(render_wer, 3),
+                "mono_label": grading["mono_label"],
+                "mono_score": grading["mono_score"],
+                "audio_label": grading["audio_label"],
+                "audio_score": grading["audio_score"],
+                "audio_evidence": grading["audio_evidence"],
+                "render_wer": asr_result["render_wer"],
+                "mos_score": mos_score,
             }
         )
 
@@ -187,23 +111,26 @@ def main():
 
     # per-run table
     hdr = ["word", "band", "repeat", "mono_label", "mono_score",
-           "audio_label", "audio_score", "audio_evidence", "render_wer"]
+           "audio_label", "audio_score", "audio_evidence", "render_wer", "mos_score"]
     with open(args.report, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=hdr, delimiter="\t")
         w.writeheader()
         w.writerows(results)
 
-    print(f"\n{'word':<16}{'band':<10}{'monologue':<14}{'audio':<22}{'WER':>6}")
-    print("-" * 68)
+    mos_col = f"{'MOS':>6}" if mos else ""
+    print(f"\n{'word':<16}{'band':<10}{'monologue':<14}{'audio':<22}{'WER':>6}{mos_col}")
+    print("-" * (68 + len(mos_col)))
     order = {b: i for i, b in enumerate(BANDS)}
     for r in sorted(results, key=lambda r: (order.get(r["band"], 9), r["word"])):
         mono = f"{r['mono_label']}"
         audio = f"{r['audio_label']}({r['audio_score']:.0f}) {r['audio_evidence']}"
-        print(f"{r['word']:<16}{r['band']:<10}{mono:<14}{audio:<22}{r['render_wer']:>6}")
+        mos_str = f"{r['mos_score']:>6.2f}" if r["mos_score"] is not None else ""
+        print(f"{r['word']:<16}{r['band']:<10}{mono:<14}{audio:<22}{r['render_wer']:>6}{mos_str}")
 
     # per-band aggregate
-    print(f"\n{'band':<16}{'n':>3}  {'mono intact%':>12}{'audio intact%':>14}{'mean WER':>10}")
-    print("-" * 60)
+    mos_hdr = f"{'mean MOS':>10}" if mos else ""
+    print(f"\n{'band':<16}{'n':>3}  {'mono intact%':>12}{'audio intact%':>14}{'mean WER':>10}{mos_hdr}")
+    print("-" * (60 + len(mos_hdr)))
     for band in BANDS:
         b = [r for r in results if r["band"] == band]
         if not b:
@@ -212,7 +139,12 @@ def main():
         audio_ok = 100 * sum(r["audio_label"] in ("intact", "split") for r in b) / len(b)
         wers = [r["render_wer"] for r in b if r["render_wer"] == r["render_wer"]]
         mean_wer = sum(wers) / len(wers) if wers else float("nan")
-        print(f"{band:<16}{len(b):>3}  {mono_ok:>11.0f}%{audio_ok:>13.0f}%{mean_wer:>10.2f}")
+        mos_str = ""
+        if mos:
+            mos_scores = [r["mos_score"] for r in b if r["mos_score"] is not None]
+            mean_mos = sum(mos_scores) / len(mos_scores) if mos_scores else float("nan")
+            mos_str = f"{mean_mos:>10.2f}"
+        print(f"{band:<16}{len(b):>3}  {mono_ok:>11.0f}%{audio_ok:>13.0f}%{mean_wer:>10.2f}{mos_str}")
 
     print(f"\nPer-run table written to {args.report}")
 

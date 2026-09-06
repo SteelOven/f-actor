@@ -6,6 +6,7 @@ Run with:
 
 import marimo
 
+__generated_with = "0.23.9"
 app = marimo.App(width="medium")
 
 
@@ -29,8 +30,7 @@ def _(mo, pd):
 
 @app.cell
 def _(mo, vocab):
-    mo.md(
-        f"""
+    mo.md(f"""
     # Behavior-SD vocabulary (F-Actor training data)
 
     **{len(vocab):,} unique words**,
@@ -41,8 +41,7 @@ def _(mo, vocab):
       what the audio heads were trained on.
     - `narrative_count`: occurrences in instruction narratives —
       text-side exposure only.
-    """
-    )
+    """)
     return
 
 
