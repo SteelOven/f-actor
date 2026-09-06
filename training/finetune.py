@@ -57,13 +57,6 @@ def train(args, logger):
         logger=logger,
     )
 
-    train_dataset, eval_dataset, data_collator = load_data(
-        model_args=model_args,
-        data_args=data_args,
-        audio_delay_id=model.audio_delay_id,
-        logger=logger,
-        tokenizer=tokenizer,
-    )
     # Training arguments
     hf_training_args = TrainingArguments(
         output_dir=training_args.output_dir,
@@ -94,6 +87,16 @@ def train(args, logger):
         remove_unused_columns=False,
     )
 
+    with hf_training_args.main_process_first():
+        train_dataset, eval_dataset, data_collator = load_data(
+            model_args=model_args,
+            data_args=data_args,
+            training_args=training_args,
+            audio_delay_id=model.audio_delay_id,
+            logger=logger,
+            tokenizer=tokenizer,
+        )
+
     # log the training args
     combined_config = {
         **vars(model_args),
@@ -113,7 +116,7 @@ def train(args, logger):
         args=hf_training_args,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
         data_collator=data_collator,
         callbacks=[
             EarlyStoppingCallback(
