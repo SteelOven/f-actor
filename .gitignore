@@ -37,3 +37,6 @@ __marimo__/
 
 # Personal symlink into university notes (not part of the repo)
 Topic Oov Full-Duplex
+/.idea
+/UniCluster
+/CLUSTER_SETUP.md
