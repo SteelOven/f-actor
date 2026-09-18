@@ -37,6 +37,6 @@ set -euo pipefail
   set -euo pipefail
   cd /workspace/factor-code
   $FACTOR_PYTHON scripts/analysis/generate_oov_configs.py \
-      --words-file "$PERSONAPLEX_DIR/oov_wordlist.csv" --outdir confs/oov
+      --words-file "$PERSONAPLEX_DIR/wordlists/oov_wordlist.csv" --outdir confs/oov
   $FACTOR_PYTHON training/run_oov_batch.py --configs-glob "confs/oov/*.json"
 '

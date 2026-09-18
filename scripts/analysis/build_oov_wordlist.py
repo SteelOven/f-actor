@@ -8,9 +8,9 @@ build_stimuli_from_wordlist.py (word -> prompt file + experiments_oov.csv row).
 
 Usage:
     python scripts/analysis/build_oov_wordlist.py --words hello quantum schadenfreude \\
-        --out ../personaplex/oov_wordlist.csv
+        --out ../personaplex/wordlists/oov_wordlist.csv
     python scripts/analysis/build_oov_wordlist.py --words-file mywords.txt \\
-        --out "$PERSONAPLEX_DIR/oov_wordlist.csv"
+        --out "$PERSONAPLEX_DIR/wordlists/oov_wordlist.csv"
 """
 
 import argparse
