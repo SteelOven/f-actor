@@ -14,7 +14,7 @@ dependencies = [
     "torch==2.8.0",
     "dataset==2.0.0",
     "wandb==0.22.2",
-    "sentencepiece=0.2.1",
+    "sentencepiece==0.2.1",
     "accelerate==1.10.1",
     "deepspeed==0.18.0",
     "pre-commit==4.3.0",
@@ -29,6 +29,9 @@ dependencies = [
     "silero-vad==6.2.0",
     "jiwer==3.1.0",
     "torchcodec==0.8.0",
+    # onnxruntime dropped cp310 wheels starting at 1.24.1; pin to the last
+    # version that still ships one, since we're on Python 3.10.
+    "onnxruntime==1.23.2; python_full_version < '3.11'",
 ]
 
 [project.optional-dependencies]
