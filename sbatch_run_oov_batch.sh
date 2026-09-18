@@ -7,13 +7,15 @@
 #SBATCH --time=04:00:00
 #SBATCH --output=%x_%j.log
 #
-# F-Actor counterpart to personaplex/sbatch_run_batch.sh: regenerates
-# confs/oov/*.json + manifest.tsv from the shared oov_wordlist.csv, then runs
-# every config through training/run_oov_batch.py, which loads the ~10.5GB
-# model once for the whole batch (not once per config - the dominant cost at
-# this scale, see that script's docstring). Runs in the same shared
-# container as PersonaPlex (personaplex/cluster_run.sh) since both repos
-# mount into one $WS.
+# F-Actor counterpart to personaplex/cluster/sbatch_run_batch.sh: regenerates
+# confs/oov/*.json + manifest.tsv from a wordlist, then runs every config
+# through training/run_oov_batch.py, which loads the ~10.5GB model once for
+# the whole batch (not once per config - the dominant cost at this scale,
+# see that script's docstring). Runs in the same shared container as
+# PersonaPlex (personaplex/cluster/cluster_run.sh) since both repos mount
+# into one $WS. The actual two-step logic lives in
+# run_oov_batch_from_words.sh, parametrized on the words-file so a subset
+# can run as its own job instead of always the full shared wordlist.
 #
 # Note: generate_oov_configs.py fully rewrites manifest.tsv every call,
 # scoped to whatever --words-file it's given. Config *files* left over from
@@ -29,14 +31,9 @@
 # per-config "(Xs)" timings in this run's log and tighten it next time.
 #
 # Usage (from a login node, in ~/f-actor):
-#   sbatch sbatch_run_oov_batch.sh
+#   sbatch sbatch_run_oov_batch.sh                                           # full shared wordlist
+#   sbatch sbatch_run_oov_batch.sh wordlists/oov_words_50_plausible.txt      # a subset (path relative to personaplex's repo root)
 #   sbatch --time=24:00:00 --cpus-per-gpu=16 --mem-per-gpu=64G sbatch_run_oov_batch.sh   # bigger batch
 set -euo pipefail
 
-~/personaplex/cluster_run.sh bash -c '
-  set -euo pipefail
-  cd /workspace/factor-code
-  $FACTOR_PYTHON scripts/analysis/generate_oov_configs.py \
-      --words-file "$PERSONAPLEX_DIR/wordlists/oov_wordlist.csv" --outdir confs/oov
-  $FACTOR_PYTHON training/run_oov_batch.py --configs-glob "confs/oov/*.json"
-'
+~/personaplex/cluster/cluster_run.sh /workspace/factor-code/run_oov_batch_from_words.sh "$@"

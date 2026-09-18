@@ -22,7 +22,7 @@
 #   sbatch sbatch_analyze_oov_parakeet.sh
 set -euo pipefail
 
-~/personaplex/cluster_run.sh bash -c '
+~/personaplex/cluster/cluster_run.sh bash -c '
   cd /workspace/factor-code
   $TOOLS_PYTHON scripts/analysis/analyze_oov.py --asr-backend parakeet-tdt --mos-backend utmos
 '

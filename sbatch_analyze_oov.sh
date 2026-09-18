@@ -26,7 +26,7 @@ set -euo pipefail
 # personaplex/CLUSTER_SETUP.md Gotchas) - this partition has none.
 export NVIDIA_VISIBLE_DEVICES=void
 
-~/personaplex/cluster_run.sh bash -c '
+~/personaplex/cluster/cluster_run.sh bash -c '
   cd /workspace/factor-code
   $TOOLS_PYTHON scripts/analysis/analyze_oov.py --mos-backend utmos
 '
