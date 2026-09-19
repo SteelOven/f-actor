@@ -13,6 +13,14 @@
 # real home, only /workspace/code and /workspace/factor-code are mounted):
 #   ~/personaplex/cluster/cluster_run.sh /workspace/factor-code/preflight_check.sh
 set -uo pipefail
+
+# cluster_env.sh (sourced by cluster_run.sh before exec'ing this script)
+# ends with `cd /workspace/code` - PersonaPlex's mount, not this repo's. All
+# the checks below are relative paths, so without this cd they'd silently
+# check the wrong repo's directory and report everything missing regardless
+# of actual state (bit us 2026-09-19: exactly that happened).
+cd /workspace/factor-code
+
 FAIL=0
 
 echo "=== HF weights cache (hf_models symlink -> \$WS/factor-hf-models) ==="
