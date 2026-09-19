@@ -28,7 +28,9 @@ myjudge.sh
 mypa.sh
 vosk-model-en-us-0.22/
 trained_models
-hf_models/
+# No trailing slash: hf_models is a symlink (into $WS/factor-hf-models),
+# not a real directory, and a trailing slash only matches real directories.
+hf_models
 # No trailing slash on these two: they're now symlinks into
 # ../oov-data/f-actor/ (see that folder's README), and a trailing slash only
 # matches real directories, not symlinks.
