@@ -8,8 +8,10 @@
 #
 # Must run INSIDE the container - checks symlinks that only resolve there.
 #
-# Usage:
-#   ~/personaplex/cluster/cluster_run.sh ~/f-actor/preflight_check.sh
+# Usage (the path must be the container-internal one - cluster_run.sh's
+# argument executes inside the container, where ~ doesn't resolve to your
+# real home, only /workspace/code and /workspace/factor-code are mounted):
+#   ~/personaplex/cluster/cluster_run.sh /workspace/factor-code/preflight_check.sh
 set -uo pipefail
 FAIL=0
 
