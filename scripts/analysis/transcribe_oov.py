@@ -4,7 +4,7 @@ record.
 Hand it one audio file from outputs/oov/ (the mix or a _c1/_c2 channel) and it:
   1. resolves the mix stem back to its run record, outputs/oov/<mix_stem>.json
      (written by training/inference_example.py),
-  2. transcribes the explainer (_c1) channel via PersonaPlex's asr_backends/
+  2. transcribes the explainer (_c1) channel via oov-shared's asr_backends/
      registry (see oov_common.ASR; run this via $TOOLS_PYTHON, not this
      repo's own venv),
   3. looks up the target word from confs/oov/manifest.tsv (falling back to
@@ -69,11 +69,11 @@ def main():
     parser.add_argument("--outdir", default=DEFAULT_OUTDIR)
     parser.add_argument(
         "--asr-backend", default=DEFAULT_ASR_BACKEND,
-        help="registered backend name from PersonaPlex's asr_backends/ (default: %(default)s)",
+        help="registered backend name from oov-shared's asr_backends/ (default: %(default)s)",
     )
     parser.add_argument(
         "--mos-backend", default=None,
-        help="registered backend name from PersonaPlex's mos_backends/ (e.g. utmos). "
+        help="registered backend name from oov-shared's mos_backends/ (e.g. utmos). "
              "Omit to skip naturalness scoring (default: off)",
     )
     args = parser.parse_args()

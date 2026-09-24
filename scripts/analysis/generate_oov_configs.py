@@ -11,10 +11,11 @@ Usage:
     python scripts/analysis/generate_oov_configs.py --words-file mywords.txt --repeats 3
 
     # --words-file also accepts the shared oov_wordlist.csv (see
-    # build_oov_wordlist.py) - band/frequency come from --vocab either way,
-    # the CSV's own speech_count/narrative_count/band columns are ignored so
-    # there's one source of truth for those numbers, not two.
-    python scripts/analysis/generate_oov_configs.py --words-file ../personaplex/oov_wordlist.csv
+    # oov-shared/wordlists/build_oov_wordlist.py) - band/frequency come from
+    # --vocab either way, the CSV's own speech_count/narrative_count/band
+    # columns are ignored so there's one source of truth for those numbers,
+    # not two.
+    python scripts/analysis/generate_oov_configs.py --words-file ../oov-shared/wordlists/oov_wordlist.csv
 
 Then run the generated configs:
     for f in confs/oov/*.json; do
@@ -26,8 +27,17 @@ import argparse
 import csv
 import json
 import os
+import sys
 
-from oov_vocab import get_band, load_vocab
+# oov_vocab (the shared band definition) lives in oov-shared's wordlists/ -
+# $OOV_SHARED_DIR on the cluster (see personaplex's cluster_env.sh),
+# otherwise a sibling checkout (also /workspace/oov-shared in the container).
+sys.path.insert(0, os.path.join(
+    os.environ.get("OOV_SHARED_DIR", os.path.join(os.path.dirname(__file__), "..", "..", "..", "oov-shared")),
+    "wordlists",
+))
+
+from oov_vocab import get_band, load_vocab  # noqa: E402
 
 VOCAB_TABLE = "scripts/analysis/behavior_sd_vocab.tsv"
 

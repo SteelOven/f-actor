@@ -20,7 +20,7 @@ If a run was already graded by this or transcribe_oov.py with the same
 (generation itself no longer does inline ASR -- see training/inference_example.py).
 
 Naturalness (MOS) scoring is opt-in via --mos-backend (e.g. "utmos", see
-PersonaPlex's mos_backends/registry.py) - off by default, since unlike ASR
+oov-shared's mos_backends/registry.py) - off by default, since unlike ASR
 it's a heavier, newer-Python-only dependency not every tools-venv has.
 
 Usage:
@@ -59,11 +59,11 @@ def main():
     ap.add_argument("--outdir", default=DEFAULT_OUTDIR)
     ap.add_argument(
         "--asr-backend", default=DEFAULT_ASR_BACKEND,
-        help="registered backend name from PersonaPlex's asr_backends/ (default: %(default)s)",
+        help="registered backend name from oov-shared's asr_backends/ (default: %(default)s)",
     )
     ap.add_argument(
         "--mos-backend", default=None,
-        help="registered backend name from PersonaPlex's mos_backends/ (e.g. utmos). "
+        help="registered backend name from oov-shared's mos_backends/ (e.g. utmos). "
              "Omit to skip naturalness scoring (default: off)",
     )
     ap.add_argument("--report", default="outputs/oov/analysis.tsv")

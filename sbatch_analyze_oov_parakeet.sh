@@ -15,8 +15,8 @@
 #
 # Requires nemo_toolkit[asr] + the cached parakeet-tdt checkpoint (both
 # already done in $TOOLS_PYTHON's venv/$HF_HOME during the PersonaPlex-side
-# smoke test - shared, since both repos point PERSONAPLEX_DIR/asr_backends/
-# at the same venv and $WS).
+# smoke test - shared, since both repos use oov-shared's
+# grading/asr_backends/ with the same venv and $WS).
 #
 # Usage (from a login node, in ~/f-actor):
 #   sbatch sbatch_analyze_oov_parakeet.sh

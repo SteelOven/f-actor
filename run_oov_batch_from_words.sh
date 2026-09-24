@@ -7,15 +7,15 @@
 # words) run as its own clean job instead of always processing the full
 # shared wordlist.
 #
-# Runs inside the container (needs $PERSONAPLEX_DIR/$FACTOR_PYTHON, both set
+# Runs inside the container (needs $OOV_SHARED_DIR/$FACTOR_PYTHON, both set
 # by cluster_env.sh - invoke via cluster_run.sh, not directly).
 #
 # Usage:
 #   ./run_oov_batch_from_words.sh                                    # default: full shared wordlist
-#   ./run_oov_batch_from_words.sh wordlists/oov_words_50_plausible.txt   # a subset - path relative to personaplex's repo root
+#   ./run_oov_batch_from_words.sh wordlists/oov_words_50_plausible.txt   # a subset - path relative to oov-shared's repo root
 set -euo pipefail
 
-WORDS_FILE="$PERSONAPLEX_DIR/${1:-wordlists/oov_wordlist.csv}"
+WORDS_FILE="$OOV_SHARED_DIR/${1:-wordlists/oov_wordlist.csv}"
 
 cd /workspace/factor-code
 $FACTOR_PYTHON scripts/analysis/generate_oov_configs.py \

@@ -9,11 +9,11 @@ stages instead of being duplicated into a second file:
      `generation` (the model's own text-stream transcripts) when it creates
      the dialogue.
   2. enrich_run() adds `asr` (the ASR transcript of the explainer channel,
-     via PersonaPlex's asr_backends/ registry -- see ASR below -- plus WER
+     via oov-shared's asr_backends/ registry -- see ASR below -- plus WER
      against the model's own transcript), if a target word is known,
      `grading` (intact/split/substituted/dropped fidelity), and, if a MOS
      backend is given, `mos` (a naturalness score for that same explainer
-     channel, via PersonaPlex's mos_backends/ registry -- see MOS below).
+     channel, via oov-shared's mos_backends/ registry -- see MOS below).
      Always a standalone step (analyze_oov.py, transcribe_oov.py), run
      separately from generation -- see run_oov_batch.py/inference_example.py,
      which are generation-only.
@@ -22,7 +22,7 @@ All three additions are keyed by backend name, so switching backends -- or
 re-running with the same one -- never clobbers earlier results and is a
 no-op when that backend's entry already exists. Unlike ASR, MOS is opt-in
 (no default backend) -- it's a heavier, newer-Python-only dependency (see
-PersonaPlex's mos_backends/utmos_backend.py) that not every tools-venv will
+oov-shared's mos_backends/utmos_backend.py) that not every tools-venv will
 have installed.
 """
 
@@ -84,16 +84,30 @@ def grade_word(text, word):
     return "dropped", best, span
 
 
+def _add_shared_grading_to_path():
+    """Put oov-shared's grading/ (asr_backends, mos_backends) on sys.path.
+
+    Reached via OOV_SHARED_DIR (see personaplex's cluster_env.sh; defaults to
+    a sibling checkout, which also resolves to /workspace/oov-shared inside
+    the container) rather than a package dependency, the same way
+    training/*.py already reaches this repo's own scripts/analysis/ via
+    sys.path.
+    """
+    shared_dir = os.environ.get(
+        "OOV_SHARED_DIR", os.path.join(os.path.dirname(__file__), "..", "..", "..", "oov-shared")
+    )
+    grading_dir = os.path.join(shared_dir, "grading")
+    if grading_dir not in sys.path:
+        sys.path.insert(0, grading_dir)
+
+
 class ASR:
-    """Lazy, single-load ASR wrapper around PersonaPlex's asr_backends
+    """Lazy, single-load ASR wrapper around oov-shared's asr_backends
     registry, so both models' outputs are graded by the exact same ASR
     implementation instead of two different ones (this used to wrap a
     transformers whisper-base.en pipeline directly).
 
-    Reached via PERSONAPLEX_DIR (see cluster_env.sh; defaults to a sibling
-    checkout for local dev) rather than a package dependency, the same way
-    training/*.py already reaches this repo's own scripts/analysis/ via
-    sys.path. `model` is a registry name (see asr_backends/registry.py),
+    `model` is a registry name (see asr_backends/registry.py),
     e.g. "whisper-large-v3", not a HuggingFace model id.
 
     No file-level caching here -- callers cache inside the run record itself
@@ -107,11 +121,7 @@ class ASR:
 
     def transcribe(self, wav_path):
         if self._backend is None:
-            personaplex_dir = os.environ.get(
-                "PERSONAPLEX_DIR", os.path.join(os.path.dirname(__file__), "..", "..", "..", "personaplex")
-            )
-            if personaplex_dir not in sys.path:
-                sys.path.insert(0, personaplex_dir)
+            _add_shared_grading_to_path()
             from asr_backends import get_backend
 
             print(f"[loading asr_backends:{self.model} once ...]")
@@ -120,10 +130,10 @@ class ASR:
 
 
 class MOS:
-    """Lazy, single-load naturalness-scoring wrapper around PersonaPlex's
+    """Lazy, single-load naturalness-scoring wrapper around oov-shared's
     mos_backends registry -- same reasoning as ASR above: one shared
     implementation instead of a second one built here, reached the same way
-    (PERSONAPLEX_DIR sys.path insertion, not a package dependency).
+    (_add_shared_grading_to_path, not a package dependency).
 
     `model` is a registry name (see mos_backends/registry.py), e.g. "utmos".
     """
@@ -134,11 +144,7 @@ class MOS:
 
     def score(self, wav_path):
         if self._backend is None:
-            personaplex_dir = os.environ.get(
-                "PERSONAPLEX_DIR", os.path.join(os.path.dirname(__file__), "..", "..", "..", "personaplex")
-            )
-            if personaplex_dir not in sys.path:
-                sys.path.insert(0, personaplex_dir)
+            _add_shared_grading_to_path()
             from mos_backends import get_backend
 
             print(f"[loading mos_backends:{self.model} once ...]")

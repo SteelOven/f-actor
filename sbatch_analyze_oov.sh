@@ -14,7 +14,7 @@
 # in mid-batch.
 #
 # --mos-backend utmos turns on naturalness scoring (opt-in, uses
-# PersonaPlex's mos_backends/utmos_backend.py via $TOOLS_PYTHON - see
+# oov-shared's mos_backends/utmos_backend.py via $TOOLS_PYTHON - see
 # personaplex/sbatch_analyze.sh's comment on its first-use checkpoint
 # download).
 #
