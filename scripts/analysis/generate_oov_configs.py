@@ -3,7 +3,7 @@
 Each target word becomes one config (x --repeats) for
 training/inference_example.py: speaker 1 is instructed to explain the word,
 speaker 2 to ask questions about it. Words are annotated with their training
-frequency from the Behavior-SD vocab table (see build_behavior_sd_vocab.py)
+frequency from the Behavior-SD vocab table (see oov-shared's wordlists/build_behavior_sd_vocab.py)
 so results can be analyzed by frequency band.
 
 Usage:
@@ -29,17 +29,19 @@ import json
 import os
 import sys
 
-# oov_vocab (the shared band definition) lives in oov-shared's wordlists/ -
-# $OOV_SHARED_DIR on the cluster (see personaplex's cluster_env.sh),
-# otherwise a sibling checkout (also /workspace/oov-shared in the container).
-sys.path.insert(0, os.path.join(
+# oov_vocab (the shared band definition) and the Behavior-SD frequency table
+# live in oov-shared's wordlists/ - $OOV_SHARED_DIR on the cluster (see
+# personaplex's cluster_env.sh), otherwise a sibling checkout (also
+# /workspace/oov-shared in the container).
+OOV_WORDLISTS = os.path.join(
     os.environ.get("OOV_SHARED_DIR", os.path.join(os.path.dirname(__file__), "..", "..", "..", "oov-shared")),
     "wordlists",
-))
+)
+sys.path.insert(0, OOV_WORDLISTS)
 
 from oov_vocab import get_band, load_vocab  # noqa: E402
 
-VOCAB_TABLE = "scripts/analysis/behavior_sd_vocab.tsv"
+VOCAB_TABLE = os.path.join(OOV_WORDLISTS, "behavior_sd_vocab.tsv")
 
 NARRATIVE_EXPLAINER = (
     "You are excited to tell {partner} about '{word}'. You explain to "

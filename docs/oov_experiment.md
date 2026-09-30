@@ -14,16 +14,17 @@ Three stages, each a separate script so you can re-run the cheap parts without
 the expensive ones:
 
 ```
-build_behavior_sd_vocab.py   ->  behavior_sd_vocab.tsv   (word -> training counts)
+build_behavior_sd_vocab.py   ->  behavior_sd_vocab.tsv   (word -> training counts; in oov-shared)
 generate_oov_configs.py      ->  confs/oov/*.json        (one dialogue per word)
 training/inference_example.py->  outputs/oov/*.{wav,json}(audio + transcript)
 ```
 
 ### 1. Vocabulary table — what the model actually heard
 
-`scripts/analysis/build_behavior_sd_vocab.py` counts every word in the
+oov-shared's `wordlists/build_behavior_sd_vocab.py` counts every word in the
 Behavior-SD training set (`maikezu/f-actor-behavior-sd-nanocodec`) and writes
-`scripts/analysis/behavior_sd_vocab.tsv` with two counts per word:
+`wordlists/behavior_sd_vocab.tsv` (also in oov-shared, since it defines the
+bands for both models) with two counts per word:
 
 - **speech_count** — tokens in `utterances[].tts_text` and the backchannels,
   i.e. text the model was trained to *speak*. This is the number that matters
@@ -35,13 +36,13 @@ Behavior-SD training set (`maikezu/f-actor-behavior-sd-nanocodec`) and writes
 It reads only the text columns straight from the HuggingFace parquet files over
 HTTP (DuckDB column projection), so there's no multi-GB download. The table is
 checked in, so you normally don't need to rebuild it. See
-[`vocab_table.md`](vocab_table.md) for how the table is built and how to
+oov-shared's `docs/vocab_table.md` for how the table is built and how to
 reproduce it for a different model.
 
-Look a word up without regenerating anything:
+Look a word up without regenerating anything (from the oov-shared checkout):
 
 ```bash
-python scripts/analysis/build_behavior_sd_vocab.py --lookup schadenfreude quokka recipe
+python3 wordlists/build_behavior_sd_vocab.py --lookup schadenfreude quokka recipe
 ```
 
 ### 2. Config generator — one dialogue per word
@@ -95,7 +96,7 @@ Generate configs for the curated word list (spans every band) and run them:
 
 ```bash
 # 1. (optional) refresh the vocab table — usually skip, it's committed
-python scripts/analysis/build_behavior_sd_vocab.py
+#    (in oov-shared: python3 wordlists/build_behavior_sd_vocab.py)
 
 # 2. make one config per word, 2 repeats each (sampling is stochastic)
 python scripts/analysis/generate_oov_configs.py \

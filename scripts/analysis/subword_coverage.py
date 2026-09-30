@@ -9,7 +9,7 @@ from common chunks and "borborygmus" is not).
 
 This script measures sub-unit coverage with **no model and no extra deps**: it
 derives spoken character-n-gram frequencies straight from
-`behavior_sd_vocab.tsv` by weighting each word's n-grams by its `speech_count`
+oov-shared's `wordlists/behavior_sd_vocab.tsv` by weighting each word's n-grams by its `speech_count`
 (how often that chunk was actually spoken in training). Character n-grams are a
 dependency-free proxy for phonemes; for true phonemes, swap `ngrams()` for a G2P
 (e.g. g2p_en) -- the rest is unchanged.
@@ -32,11 +32,17 @@ Usage:
 import argparse
 import csv
 import math
+import os
 from collections import Counter, defaultdict
 
 from scipy.stats import spearmanr
 
-DEFAULT_VOCAB = "scripts/analysis/behavior_sd_vocab.tsv"
+# the Behavior-SD frequency table lives in oov-shared's wordlists/ ($OOV_SHARED_DIR
+# on the cluster, otherwise a sibling checkout)
+DEFAULT_VOCAB = os.path.join(
+    os.environ.get("OOV_SHARED_DIR", os.path.join(os.path.dirname(__file__), "..", "..", "..", "oov-shared")),
+    "wordlists", "behavior_sd_vocab.tsv",
+)
 DEFAULT_WORDS = "scripts/analysis/oov_words.txt"
 DEFAULT_ANALYSIS = "outputs/oov/analysis.tsv"
 PAD = "^"  # word-boundary marker so onsets/codas count as their own units
