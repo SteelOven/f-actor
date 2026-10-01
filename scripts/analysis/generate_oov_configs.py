@@ -43,6 +43,9 @@ from oov_vocab import get_band, load_vocab  # noqa: E402
 
 VOCAB_TABLE = os.path.join(OOV_WORDLISTS, "behavior_sd_vocab.tsv")
 
+# Defaults only - template variants come in via --narrative-explainer/
+# --narrative-listener (oov-shared's run_experiment.sh passes the text from its
+# templates/*.json). {word} and {partner} are substituted.
 NARRATIVE_EXPLAINER = (
     "You are excited to tell {partner} about '{word}'. You explain to "
     "{partner} what '{word}' means and you use the word '{word}' several times."
@@ -64,14 +67,14 @@ def make_config(word, speaker1, speaker2, rep, args, speech_count, narrative_cou
         },
         "speaker1": {
             "name": speaker1,
-            "narrative": NARRATIVE_EXPLAINER.format(partner=speaker2, word=word),
+            "narrative": args.narrative_explainer.format(partner=speaker2, word=word),
             "starts": True,
             "backchannels": args.backchannels,
             "interruptions": args.interruptions,
         },
         "speaker2": {
             "name": speaker2,
-            "narrative": NARRATIVE_LISTENER.format(partner=speaker1, word=word),
+            "narrative": args.narrative_listener.format(partner=speaker1, word=word),
             "starts": False,
             "backchannels": args.backchannels,
             "interruptions": args.interruptions,
@@ -79,9 +82,9 @@ def make_config(word, speaker1, speaker2, rep, args, speech_count, narrative_cou
         "output_dir": args.audio_dir,
         "output_file": f"{word}_r{rep}.wav",
         "max_length": args.max_length,
-        "temperature": 0.9,
-        "top_k": 40,
-        "top_p": 1.0,
+        "temperature": args.temperature,
+        "top_k": args.top_k,
+        "top_p": args.top_p,
     }
 
 
@@ -113,7 +116,15 @@ def main():
     parser.add_argument("--outdir", default="confs/oov")
     parser.add_argument("--audio-dir", default="outputs/oov", dest="audio_dir")
     parser.add_argument("--vocab", default=VOCAB_TABLE)
+    parser.add_argument("--narrative-explainer", default=NARRATIVE_EXPLAINER, dest="narrative_explainer")
+    parser.add_argument("--narrative-listener", default=NARRATIVE_LISTENER, dest="narrative_listener")
+    parser.add_argument("--temperature", type=float, default=0.9)
+    parser.add_argument("--top-k", type=int, default=40, dest="top_k")
+    parser.add_argument("--top-p", type=float, default=1.0, dest="top_p")
     args = parser.parse_args()
+    for name in ("narrative_explainer", "narrative_listener"):
+        if "{word}" not in getattr(args, name):
+            parser.error(f"--{name.replace('_', '-')} must contain {{word}}")
 
     words = [w.lower() for w in args.words]
     if args.words_file:
