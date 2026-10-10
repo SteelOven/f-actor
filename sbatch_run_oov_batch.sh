@@ -32,7 +32,7 @@
 #
 # Usage (from a login node, in ~/f-actor):
 #   sbatch sbatch_run_oov_batch.sh                                           # full shared wordlist
-#   sbatch sbatch_run_oov_batch.sh wordlists/oov_words_50_plausible.txt      # a subset (path relative to personaplex's repo root)
+#   sbatch sbatch_run_oov_batch.sh wordlists/_legacy/oov_words_50_plausible.txt      # a subset (path relative to personaplex's repo root)
 #   sbatch --time=24:00:00 --cpus-per-gpu=16 --mem-per-gpu=64G sbatch_run_oov_batch.sh   # bigger batch
 set -euo pipefail
 

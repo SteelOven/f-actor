@@ -14,14 +14,14 @@ Three stages, each a separate script so you can re-run the cheap parts without
 the expensive ones:
 
 ```
-build_behavior_sd_vocab.py   ->  behavior_sd_vocab.tsv   (word -> training counts; in oov-shared)
+count_vocab.py --write-contract   ->  behavior_sd_vocab.tsv   (word -> training counts; in oov-shared)
 generate_oov_configs.py      ->  confs/oov/*.json        (one dialogue per word)
 training/inference_example.py->  outputs/oov/*.{wav,json}(audio + transcript)
 ```
 
 ### 1. Vocabulary table — what the model actually heard
 
-oov-shared's `wordlists/build_behavior_sd_vocab.py` counts every word in the
+oov-shared's `wordlists/count_vocab.py --write-contract` counts every word in the
 Behavior-SD training set (`maikezu/f-actor-behavior-sd-nanocodec`) and writes
 `wordlists/behavior_sd_vocab.tsv` (also in oov-shared, since it defines the
 bands for both models) with two counts per word:
@@ -42,7 +42,7 @@ reproduce it for a different model.
 Look a word up without regenerating anything (from the oov-shared checkout):
 
 ```bash
-python3 wordlists/build_behavior_sd_vocab.py --lookup schadenfreude quokka recipe
+python3 wordlists/explain.py schadenfreude quokka recipe
 ```
 
 ### 2. Config generator — one dialogue per word
@@ -96,7 +96,7 @@ Generate configs for the curated word list (spans every band) and run them:
 
 ```bash
 # 1. (optional) refresh the vocab table — usually skip, it's committed
-#    (in oov-shared: python3 wordlists/build_behavior_sd_vocab.py)
+#    (in oov-shared: python3 wordlists/count_vocab.py --write-contract)
 
 # 2. make one config per word, 2 repeats each (sampling is stochastic)
 python scripts/analysis/generate_oov_configs.py \

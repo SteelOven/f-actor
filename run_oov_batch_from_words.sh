@@ -12,7 +12,7 @@
 #
 # Usage:
 #   ./run_oov_batch_from_words.sh                                    # default: full shared wordlist
-#   ./run_oov_batch_from_words.sh wordlists/oov_words_50_plausible.txt   # a subset - path relative to oov-shared's repo root
+#   ./run_oov_batch_from_words.sh wordlists/_legacy/oov_words_50_plausible.txt   # a subset - path relative to oov-shared's repo root
 set -euo pipefail
 
 WORDS_FILE="$OOV_SHARED_DIR/${1:-wordlists/oov_wordlist.csv}"

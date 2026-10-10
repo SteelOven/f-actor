@@ -3,7 +3,7 @@
 Each target word becomes one config (x --repeats) for
 training/inference_example.py: speaker 1 is instructed to explain the word,
 speaker 2 to ask questions about it. Words are annotated with their training
-frequency from the Behavior-SD vocab table (see oov-shared's wordlists/build_behavior_sd_vocab.py)
+frequency from the Behavior-SD vocab table (see oov-shared's wordlists/count_vocab.py --write-contract)
 so results can be analyzed by frequency band.
 
 Usage:
