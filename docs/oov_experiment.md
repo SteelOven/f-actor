@@ -144,3 +144,61 @@ per word before drawing conclusions.
   hyphenated or multi-word targets are counted per sub-word.
 - The vocab table is sorted by frequency, so `head`/`tail` of the `.tsv` gives
   you the most common and the rarest seen words to sample new targets from.
+
+## Prefix experiment (in progress, branch `prefix`)
+
+**Question.** Once the model has *heard the correct pronunciation* of a rare word in its own channel, does it
+reproduce the word correctly later in the dialogue? The first seconds of the dialogue are fixed: a TTS turn by Tom
+(the explainer, who starts) that contains the word, fed to the model teacher-forced via `generate(...,
+use_speaker_sample=N)`. If that helps, the failure is "doesn't know how the word sounds"; if not, it is the audio
+head's production. The codec is ruled out separately by `scripts/analysis/codec_roundtrip.py`.
+
+**Where things are.** Model-independent parts live in oov-shared (TTS, ASR, alignment, levels); everything that
+knows F-Actor's token layout lives here.
+
+| Step | File | Runs in | Status |
+|---|---|---|---|
+| TTS clips of the opener + ASR gate | oov-shared `checks/configs/p3_prefix_tom.yaml` (`checks/asr_roundtrip.py`) | cluster: cosy-venv / `$TOOLS_PYTHON` | submitted 2026-10-16 |
+| Level of TTS vs Behavior-SD | oov-shared `checks/loudness.py`, result in `checks/LOG.md` | laptop | done: +5.6 dB |
+| Word timings from the known text | oov-shared `checks/align.py`, stage `align` -> `<run dir>/alignment.jsonl` | laptop (`uv sync --group align`) or `$TOOLS_PYTHON` | done, tested on P1 |
+| wav + timings -> `dsu`/`text` tensors | `training/prefix.py` (`build_prefix`) | factor-venv / `.venv` | done |
+| Sanity checks without the model | `scripts/analysis/check_prefix.py` -> `outputs/prefix_check/<word>__<voice>/` | laptop | done, 4/4 P1 clips pass |
+| Generation hook (config key `prefix`) | `training/inference_example.py`, `training/run_oov_batch.py` | cluster | open |
+| Grading only after the prefix | `scripts/analysis/oov_common.py` (`enrich_run`) | `$TOOLS_PYTHON` | open, **required**: c1 contains the prefix |
+
+**Data flow.**
+
+```
+oov-shared run dir (e.g. $WS/checks/p3_prefix_tom, copied to oov-data/checks/)
+  audio/<word>__tom.wav (CosyVoice, 24 kHz)   manifest.jsonl (the text)   results.tsv (ASR gate)
+      │  asr_roundtrip.py align <config>
+      ▼
+  alignment.jsonl  (words with start/dur, target_idx)
+      │  training/prefix.py build_prefix(wav, words, codec, tokenizer, gain_db=5.6)
+      ▼
+  Prefix: dsu [1, 8, N], text [1, 2, N], N = 2 + T, seconds = T * 80 ms
+      ├─ scripts/analysis/check_prefix.py -> prefix.wav, frames.tsv, prefix.pt, summary.json
+      └─ (open) generate_dialogue(..., use_speaker_sample=N, dsu_sample=dsu, text_sample=text)
+```
+
+**Check prefixes (laptop).**
+
+```bash
+python scripts/analysis/check_prefix.py --run-dir ../oov-data/checks/p1_oov150 --voice tom \
+    --words adherer appalachia --out outputs/prefix_check
+column -t -s$'\t' outputs/prefix_check/adherer__tom/frames.tsv | less    # text tokens vs the word spoken per frame
+```
+
+**Layout details the builder takes care of** (see `training/prefix.py`):
+- frames 0-1 are `audio_delay_id` on all 8 heads; `generate` does not insert them once `N > 2`;
+- speaker 2's channel is *encoded* silence, not pad ids; its text stream is all `[SILENCE_PAD]`;
+- the text stream is made by the training code (`adapt_to_text_stream`), with `end_time` = the codec frames'
+  duration, because `create_text_stream` derives frames-per-second from it;
+- text is not delayed, audio is by 2 frames (`frames.tsv`: `t_text` vs `t_audio`), as in training;
+- gain +5.6 dB with a peak guard at -0.5 dBFS (a few peaky clips get less, e.g. `appalachia` +0.8 dB).
+
+**Gotchas.**
+- The decoded output still starts with the prefix, and the existing grading transcribes the whole Tom channel:
+  without the grading fix every prefixed run "contains" the word.
+- `alignment.jsonl`'s `score` measures how well the spelling fits the sound, not correctness; gate on the ASR
+  (`results.tsv`), not on it.
