@@ -91,8 +91,10 @@ def build_prefix(wav_path, words, codec, tokenizer, *, gain_db=0.0, add_bc_token
     if speaker1.shape != speaker2.shape:
         raise ValueError(f"codes of speech {speaker1.shape} and silence {speaker2.shape} differ in shape")
     n_codes = speaker1.shape[1]
-    if speaker1.max() >= AUDIO_DELAY_ID:
-        raise ValueError(f"codec produced code {speaker1.max()}, which collides with audio_delay/eos ids")
+    # 4030/4031 are also ordinary codec codes (FSQ codebook size = audio_vocab_size = 4032): they occur a few times per
+    # channel in Behavior-SD audio too, so training saw them as audio. Counted, not rejected; generate() checks for
+    # EOS only in the frames it generates, not in the prefix.
+    shared_ids = int(np.isin(speaker1, [AUDIO_DELAY_ID, AUDIO_EOS_ID]).sum())
 
     dsu, text, skip, overflow = adapt_to_text_stream(
         True,                                   # two text streams, as data.py does for inference
@@ -111,4 +113,5 @@ def build_prefix(wav_path, words, codec, tokenizer, *, gain_db=0.0, add_bc_token
         raise ValueError(f"audio has {dsu.shape[-1]} frames but text {text.shape[-1]}")
     return Prefix(dsu=dsu, text=text, n_frames=dsu.shape[-1], seconds=n_codes * SAMPLES_PER_FRAME / CODEC_SR,
                   overflow_words=int(overflow), gain_db=round(applied_gain, 2),
-                  info={"wav": str(wav_path), "n_codes": n_codes, "requested_gain_db": gain_db})
+                  info={"wav": str(wav_path), "n_codes": n_codes, "requested_gain_db": gain_db,
+                        "codes_equal_to_delay_or_eos": shared_ids})

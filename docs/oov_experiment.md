@@ -162,7 +162,7 @@ knows F-Actor's token layout lives here.
 | Level of TTS vs Behavior-SD | oov-shared `checks/loudness.py`, result in `checks/LOG.md` | laptop | done: +5.6 dB |
 | Word timings from the known text | oov-shared `checks/align.py`, stage `align` -> `<run dir>/alignment.jsonl` | laptop (`uv sync --group align`) or `$TOOLS_PYTHON` | done, tested on P1 |
 | wav + timings -> `dsu`/`text` tensors | `training/prefix.py` (`build_prefix`) | factor-venv / `.venv` | done |
-| Sanity checks without the model | `scripts/analysis/check_prefix.py` -> `outputs/prefix_check/<word>__<voice>/` | laptop | done, 4/4 P1 clips pass |
+| Sanity checks without the model | `scripts/analysis/check_prefix.py` -> `outputs/prefix_check/<word>__<voice>/` | laptop | done: all 157 P1 Tom clips pass (2026-10-16) |
 | Generation hook (config key `prefix`) | `training/inference_example.py`, `training/run_oov_batch.py` | cluster | open |
 | Grading only after the prefix | `scripts/analysis/oov_common.py` (`enrich_run`) | `$TOOLS_PYTHON` | open, **required**: c1 contains the prefix |
 
@@ -195,10 +195,16 @@ column -t -s$'\t' outputs/prefix_check/adherer__tom/frames.tsv | less    # text 
 - the text stream is made by the training code (`adapt_to_text_stream`), with `end_time` = the codec frames'
   duration, because `create_text_stream` derives frames-per-second from it;
 - text is not delayed, audio is by 2 frames (`frames.tsv`: `t_text` vs `t_audio`), as in training;
-- gain +5.6 dB with a peak guard at -0.5 dBFS (a few peaky clips get less, e.g. `appalachia` +0.8 dB).
+- gain +5.6 dB with a peak guard at -0.5 dBFS. The guard lowers the gain on about half the P1 clips (isolated
+  peaks, ~0.003% of samples), e.g. `quokka` +2.0 dB; the 157 prefixes still average -17.2 dBFS active speech vs
+  Behavior-SD's -16.1, inside F-Actor's own output range. A soft limiter would recover the full gain if needed.
 
 **Gotchas.**
 - The decoded output still starts with the prefix, and the existing grading transcribes the whole Tom channel:
   without the grading fix every prefixed run "contains" the word.
+- Codes 4030/4031 are both F-Actor's delay/EOS ids *and* ordinary NanoCodec codes (codebook size 4032): Behavior-SD
+  audio has a few per channel (mostly codebook 2). Harmless in a prefix; but `generate` stops as soon as any head
+  samples 4031, so a genuine 4031 code can end a generated dialogue early. Not changed, worth knowing when reading
+  short outputs.
 - `alignment.jsonl`'s `score` measures how well the spelling fits the sound, not correctness; gate on the ASR
   (`results.tsv`), not on it.
