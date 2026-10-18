@@ -158,16 +158,16 @@ knows F-Actor's token layout lives here.
 
 | Step | File | Runs in | Status |
 |---|---|---|---|
-| TTS clips of the opener + ASR gate | oov-shared `checks/configs/p3_prefix_tom.yaml` (`checks/asr_roundtrip.py`) | cluster: cosy-venv / `$TOOLS_PYTHON` | submitted 2026-10-16 |
+| TTS clips of the opener + ASR gate | oov-shared `checks/configs/p4_repeat.yaml` (P3: `p3_prefix_tom.yaml`) | cluster: cosy-venv / `$TOOLS_PYTHON` | P3 done; P4 submitted 2026-10-18 |
 | Level of TTS vs Behavior-SD | oov-shared `checks/loudness.py`, result in `checks/LOG.md` | laptop | done: +5.6 dB |
 | Word timings from the known text | oov-shared `checks/align.py`, stage `align` -> `<run dir>/alignment.jsonl` | laptop (`uv sync --group align`) or `$TOOLS_PYTHON` | done, tested on P1 |
 | wav + timings -> `dsu`/`text` tensors | `training/prefix.py` (`build_prefix`) | factor-venv / `.venv` | done |
 | Sanity checks without the model | `scripts/analysis/check_prefix.py` -> `outputs/prefix_check/<word>__<voice>/` | laptop | done: all 157 P1 Tom clips pass (2026-10-16) |
-| Gate: words with a usable clip | oov-shared `checks/prefix_gate.py` -> `wordlists/lists/prefix_gate_p3.csv` | laptop | done (code); waits for P3 |
+| Gate: words with a usable clip | oov-shared `checks/prefix_gate.py` -> `wordlists/lists/prefix_gate_p4.csv` | laptop | P3 list done; P4 waits for the run |
 | Configs with a `prefix` block | `scripts/analysis/generate_oov_configs.py --prefix-run-dir ...` | factor-venv | done |
 | Generation hook | `training/inference_example.py` (`config_prefix`, `split_prefix_audio`) | cluster | done, stub-tested; cluster smoke open |
-| Grading only after the prefix | `scripts/analysis/oov_common.py` (`enrich_run`), `analyze_oov.py` | `$TOOLS_PYTHON` | done, tested with a fake ASR |
-| Paired experiments | oov-shared `experiments/factor_prefix_tom.json`, `factor_gated_baseline.json` | cluster | ready once the gate list exists |
+| Grading only after the prefix, both speakers | `scripts/analysis/oov_common.py` (`enrich_run`), `analyze_oov.py` | `$TOOLS_PYTHON` | done, tested with a fake ASR |
+| Paired experiments | oov-shared `experiments/factor_prefix_repeat.json`, `factor_repeat_baseline.json` | cluster | ready once the P4 gate list exists |
 
 **Data flow.**
 
@@ -202,23 +202,37 @@ column -t -s$'\t' outputs/prefix_check/adherer__tom/frames.tsv | less    # text 
   peaks, ~0.003% of samples), e.g. `quokka` +2.0 dB; the 157 prefixes still average -17.2 dBFS active speech vs
   Behavior-SD's -16.1, inside F-Actor's own output range. A soft limiter would recover the full gain if needed.
 
-**Running it.** Everything below assumes P3 is finished (`table` stage done).
+**Variants and findings.**
+- P3 opener, Tom: "Hey Brian, I want to tell you about X. Have you ever heard of X?" Smoke test (3 words,
+  2026-10-18): prefix fine (`prefix_label` intact), but Tom continues with "it"/"they" and never says the word
+  again, in text or audio; without a prefix he at least attempts it. Measures reuse, not production: shelved
+  (`experiments/factor_prefix_tom.json`, `factor_gated_baseline.json`).
+- **P4 repeat (current):** Tom says "Please listen carefully and repeat the word X." Main measure is Brian's
+  channel (`audio2_label`, `mono2_label`): does the partner produce the word after hearing it?
+  Experiments `factor_prefix_repeat.json` / `factor_repeat_baseline.json`.
+
+**Running it (P4).** Once `p4_repeat` is through `tts asr table` on the cluster:
 
 ```bash
-# laptop, oov-shared: gate with the grading ASR (backend parakeet-tdt = Parakeet 1.1b), commit the list
-uv run python checks/prefix_gate.py ../oov-data/checks/p3_prefix_tom --voice tom \
-    --asr parakeet-tdt:nvidia/parakeet-tdt-1.1b --out wordlists/lists/prefix_gate_p3.csv
-# cluster, once (interactive shell, network for the MMS_FA weights): word timings for the P3 clips
-$TOOLS_PYTHON checks/asr_roundtrip.py align checks/configs/p3_prefix_tom.yaml
-# cluster: smoke test first, directly in f-actor (3 words, 1 rep), then listen to *_c1_cont.wav
-python scripts/analysis/generate_oov_configs.py --words quokka schadenfreude water \
-    --prefix-run-dir '$WS/checks/p3_prefix_tom' --outdir confs/oov_prefix --audio-dir outputs/oov_prefix
-python training/run_oov_batch.py --configs-glob 'confs/oov_prefix/*.json'
+# laptop: fetch the run, align it, gate it (oov-shared)
+rsync -av unicluster:/pfs/work9/workspace/scratch/ka_udtmx-personaplex/checks/p4_repeat/ ../oov-data/checks/p4_repeat/
+.venv/bin/python checks/asr_roundtrip.py align checks/configs/p4_repeat.yaml --out ../oov-data/checks/p4_repeat
+.venv/bin/python checks/prefix_gate.py ../oov-data/checks/p4_repeat --voice tom \
+    --asr parakeet-tdt:nvidia/parakeet-tdt-1.1b --out wordlists/lists/prefix_gate_p4.csv
+git add wordlists/lists/prefix_gate_p4.* && git commit -m "prefix gate: P4" && git push origin roundtrip
+rsync -av ../oov-data/checks/p4_repeat/alignment.jsonl \
+    unicluster:/pfs/work9/workspace/scratch/ka_udtmx-personaplex/checks/p4_repeat/
+# cluster GPU shell, in /workspace/factor-code: smoke test (delete old outputs: finished configs are skipped)
+rm -rf confs/oov_prefix outputs/oov_prefix
+W=$(sed -n '2,6p' /workspace/oov-shared/wordlists/lists/prefix_gate_p4.csv | cut -d, -f1 | tr '\n' ' ')
+$FACTOR_PYTHON scripts/analysis/generate_oov_configs.py --words $W \
+    --prefix-run-dir '$WS/checks/p4_repeat' --outdir confs/oov_prefix --audio-dir outputs/oov_prefix
+$FACTOR_PYTHON training/run_oov_batch.py --configs-glob 'confs/oov_prefix/*.json'
 $TOOLS_PYTHON scripts/analysis/analyze_oov.py --manifest confs/oov_prefix/manifest.tsv \
     --outdir outputs/oov_prefix --asr-backend parakeet-tdt --report outputs/oov_prefix/analysis.tsv
-# cluster, login node, in ~/oov-shared: the paired experiments
-sbatch sbatch_experiment.sh experiments/factor_prefix_tom.json
-sbatch sbatch_experiment.sh experiments/factor_gated_baseline.json
+# cluster login node, in ~/oov-shared: the paired experiments (--time from the smoke run's per-config seconds)
+sbatch --time=04:30:00 sbatch_experiment.sh experiments/factor_prefix_repeat.json
+sbatch --time=04:30:00 sbatch_experiment.sh experiments/factor_repeat_baseline.json
 ```
 
 **Telling prefixed runs from regular ones.**
@@ -227,9 +241,9 @@ sbatch sbatch_experiment.sh experiments/factor_gated_baseline.json
 |---|---|---|
 | directory | `$WS/exps/factor_prefix_tom/`, `outputs/oov_prefix/` | `$WS/exps/factor_gated_baseline/`, `outputs/oov/` |
 | config / record | `"prefix"` block; `meta.prefix` = source run | neither |
-| file names | `<word>_r<n>_pfx*.wav`, plus `_c1_prefix.wav`, `_c1_cont.wav` | `<word>_r<n>*.wav` |
+| file names | `<word>_r<n>_pfx*.wav`, plus `_c1_prefix.wav`, `_c1_cont.wav`, `_c2_cont.wav` | `<word>_r<n>*.wav` |
 | transcripts | `generation.*.transcript` = generated part, `prefix_transcript` = forced part | `transcript` only |
-| grading entries | `graded_region: continuation`, `prefix_label`/`prefix_score` (control) | `graded_region: full` (missing in old records = full) |
+| grading entries | `graded_region: continuation`, `prefix_label`/`prefix_score` (control); speaker 2 in `*2_label` | `graded_region: full` (missing in old records = full); speaker 2 in `*2_label` |
 | `manifest.tsv`, `analysis.tsv` | column `prefix` = source wav | column empty |
 
 Every run also records `generation.n_generated_frames` and `generation.ended_by` (`eos` or `max_length`).
