@@ -8,7 +8,7 @@ from device_utils import get_device
 from huggingface_hub import snapshot_download
 from inference_audio.nano_decode import convert_to_audio
 from inference_audio.nano_decode import load_model as load_nanocodecs
-from prefix import AUDIO_EOS_ID, N_DELAY_AUDIO, SAMPLES_PER_FRAME, build_prefix
+from prefix import N_DELAY_AUDIO, SAMPLES_PER_FRAME, build_prefix
 from special_tokens import TEXT_STREAM_TOKENS
 from modeling_dsu import DSULlama
 from transformers import AutoConfig, AutoTokenizer
@@ -113,7 +113,7 @@ def remove_special_tokens(text):
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     return cleaned
 
-def config_prefix(config, nanocodec_model, tokenizer):
+def config_prefix(config, model, nanocodec_model, tokenizer):
     """The config's optional "prefix" (a fixed first turn by speaker 1, see training/prefix.py and
     docs/oov_experiment.md "Prefix experiment") as a built Prefix, or None."""
     p = config.get("prefix")
@@ -124,7 +124,8 @@ def config_prefix(config, nanocodec_model, tokenizer):
     wav = os.path.expandvars(p["wav"])
     if not os.path.exists(wav):
         raise FileNotFoundError(f"prefix wav not found: {wav} (from {p['wav']!r})")
-    return build_prefix(wav, p["words"], nanocodec_model, tokenizer, gain_db=p.get("gain_db", 0.0))
+    return build_prefix(wav, p["words"], nanocodec_model, tokenizer, gain_db=p.get("gain_db", 0.0),
+                        audio_delay_id=model.audio_delay_id)
 
 
 def split_prefix_audio(c1_file, prefix):
@@ -171,7 +172,7 @@ def generate_dialogue(model, tokenizer, nanocodec_model, config):
     attention_mask = inputs.attention_mask.to(device)
 
     # optional fixed first turn: generate() copies its N frames and generates from frame N on
-    prefix = config_prefix(config, nanocodec_model, tokenizer)
+    prefix = config_prefix(config, model, nanocodec_model, tokenizer)
     if prefix is not None:
         print(f"Prefix: {prefix.n_frames} frames ({prefix.seconds:.2f}s) from {config['prefix']['wav']}")
         dsu_sample, text_sample = prefix.dsu.to(device), prefix.text.to(device)
@@ -218,10 +219,9 @@ def generate_dialogue(model, tokenizer, nanocodec_model, config):
     print("Dialogue saved to ", out_audio_file)
     base, ext = os.path.splitext(out_audio_file)
 
-    # how generation ended: generate() stops when any head emits AUDIO_EOS_ID (a real codec code can equal it,
-    # see training/prefix.py), else after max_length generated frames
+    # how generation ended: generate() stops when any head emits the model's audio EOS id, else after max_length
     n_total = len(generated_dsu_ids[0])
-    ended_by = "eos_id" if any(h[-1] == AUDIO_EOS_ID for h in generated_dsu_ids) else "max_length"
+    ended_by = "eos" if any(h[-1] == model.audio_eos_id for h in generated_dsu_ids) else "max_length"
 
     # decode generated text; with a prefix, its N frames are forced, not generated
     print("Decoding generated text")

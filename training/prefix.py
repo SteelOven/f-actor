@@ -7,6 +7,7 @@ the layout training used:
 
     dsu   [1, 8, N]  heads 0-3 = speaker 1's NanoCodec codes, heads 4-7 = speaker 2 (encoded silence);
                      frames 0-1 = audio_delay_id on all heads (n_delay_audio_stream=2), N = 2 + T
+                     (codec codes are 0..4031; the model's delay/EOS ids come after them, 4032/4033)
     text  [1, 2, N]  stream 0 = speaker 1's frame-aligned text, stream 1 = speaker 2's (all [SILENCE_PAD])
 
 The text stream and the delay are made by the training code itself (dialogue_creation/get_text_stream.py's
@@ -28,9 +29,11 @@ from dialogue_creation.get_text_stream import adapt_to_text_stream
 CODEC_SR = 22050
 SAMPLES_PER_FRAME = 1764          # NanoCodec 22 kHz at 12.5 fps
 N_DELAY_AUDIO = 2                 # n_delay_audio_stream of the released checkpoint
-AUDIO_VOCAB_SIZE = 4032           # config.audio_vocab_size in inference_example.load_model
-AUDIO_DELAY_ID = AUDIO_VOCAB_SIZE - 2
-AUDIO_EOS_ID = AUDIO_VOCAB_SIZE - 1
+CODEC_CODEBOOK_SIZE = 4032        # = config.audio_vocab_size in inference_example.load_model: codes 0..4031
+# DSUModel appends its two special ids after the codes (modeling_dsu.py: audio_vocab_size = config + 2). With a
+# loaded model, pass model.audio_delay_id instead of relying on these; check_prefix.py has no model.
+AUDIO_DELAY_ID = CODEC_CODEBOOK_SIZE        # 4032
+AUDIO_EOS_ID = CODEC_CODEBOOK_SIZE + 1      # 4033
 PEAK_CEILING_DBFS = -0.5
 COSYVOICE_GAIN_DB = 5.6           # oov-shared checks/LOG.md, loudness entry of 2026-10-16
 
@@ -82,8 +85,8 @@ def synthetic_example(words, n_frames):
     }]}
 
 
-def build_prefix(wav_path, words, codec, tokenizer, *, gain_db=0.0, add_bc_token=True, add_interrupt_token=True,
-                 max_length=4096):
+def build_prefix(wav_path, words, codec, tokenizer, *, gain_db=0.0, audio_delay_id=AUDIO_DELAY_ID,
+                 add_bc_token=True, add_interrupt_token=True, max_length=4096):
     """wav + [{"word", "start", "dur"}] (seconds) -> Prefix. Raises ValueError if the text does not fit the frames."""
     audio, applied_gain = load_audio(wav_path, gain_db)
     speaker1 = encode(codec, audio)
@@ -91,16 +94,14 @@ def build_prefix(wav_path, words, codec, tokenizer, *, gain_db=0.0, add_bc_token
     if speaker1.shape != speaker2.shape:
         raise ValueError(f"codes of speech {speaker1.shape} and silence {speaker2.shape} differ in shape")
     n_codes = speaker1.shape[1]
-    # 4030/4031 are also ordinary codec codes (FSQ codebook size = audio_vocab_size = 4032): they occur a few times per
-    # channel in Behavior-SD audio too, so training saw them as audio. Counted, not rejected; generate() checks for
-    # EOS only in the frames it generates, not in the prefix.
-    shared_ids = int(np.isin(speaker1, [AUDIO_DELAY_ID, AUDIO_EOS_ID]).sum())
+    if max(speaker1.max(), speaker2.max()) >= CODEC_CODEBOOK_SIZE or audio_delay_id < CODEC_CODEBOOK_SIZE:
+        raise ValueError(f"codes must be < {CODEC_CODEBOOK_SIZE} <= audio_delay_id ({audio_delay_id})")
 
     dsu, text, skip, overflow = adapt_to_text_stream(
         True,                                   # two text streams, as data.py does for inference
         np.concatenate([speaker1, speaker2], axis=0),
         N_DELAY_AUDIO, 0, True,                 # audio delay, text delay, word alignment
-        n_codes, synthetic_example(words, n_codes), tokenizer, max_length, AUDIO_DELAY_ID,
+        n_codes, synthetic_example(words, n_codes), tokenizer, max_length, audio_delay_id,
         {"system": 0, "user": 1},
         add_bc_token=add_bc_token, add_interrupt_token=add_interrupt_token,
     )
@@ -112,6 +113,6 @@ def build_prefix(wav_path, words, codec, tokenizer, *, gain_db=0.0, add_bc_token
     if dsu.shape[-1] != text.shape[-1]:
         raise ValueError(f"audio has {dsu.shape[-1]} frames but text {text.shape[-1]}")
     return Prefix(dsu=dsu, text=text, n_frames=dsu.shape[-1], seconds=n_codes * SAMPLES_PER_FRAME / CODEC_SR,
-                  overflow_words=int(overflow), gain_db=round(applied_gain, 2),
+                  overflow_words=int(overflow), gain_db=round(float(applied_gain), 2),
                   info={"wav": str(wav_path), "n_codes": n_codes, "requested_gain_db": gain_db,
-                        "codes_equal_to_delay_or_eos": shared_ids})
+                        "audio_delay_id": audio_delay_id})

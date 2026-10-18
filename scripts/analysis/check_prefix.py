@@ -9,10 +9,9 @@ Per word, training/prefix.py builds the prefix; this script checks it and writes
     prefix.pt               the tensors + numbers, loadable by the generation hook later
     summary.json            N, seconds, gain, overflow_words, and the asserts that passed
 
-Asserts (a failure stops that word, the others continue): shapes; frames 0-1 are audio_delay_id on all 8 heads;
-speaker 2's text stream is all [SILENCE_PAD]; speaker 1's text tokens decode to the aligned words in order.
-Codes 4030/4031 after frame 1 are not an error: they are ordinary codec codes that equal the delay/eos ids (see
-training/prefix.py); summary.json counts them.
+Asserts (a failure stops that word, the others continue): shapes; frames 0-1 are audio_delay_id on all 8 heads and
+only codec codes (< 4032) come after them; speaker 2's text stream is all [SILENCE_PAD]; speaker 1's text tokens
+decode to the aligned words in order.
 
 Usage (laptop, f-actor .venv; NanoCodec and the tokenizer come from the HF cache / hf_models):
     python scripts/analysis/check_prefix.py --run-dir ../oov-data/checks/p1_oov150 --voice tom \\
@@ -32,7 +31,7 @@ for p in (os.path.join(_REPO, "training"), os.path.join(_REPO, "training", "infe
     sys.path.insert(0, p)
 
 import torch  # noqa: E402
-from prefix import (AUDIO_DELAY_ID, COSYVOICE_GAIN_DB, N_DELAY_AUDIO, SAMPLES_PER_FRAME,  # noqa: E402
+from prefix import (AUDIO_DELAY_ID, CODEC_CODEBOOK_SIZE, COSYVOICE_GAIN_DB, N_DELAY_AUDIO, SAMPLES_PER_FRAME,  # noqa: E402
                     CODEC_SR, build_prefix)
 from special_tokens import SILENCE_PAD, TEXT_STREAM_TOKENS  # noqa: E402
 
@@ -63,6 +62,7 @@ def check(prefix, row, tokenizer):
     assert dsu.shape == (1, 8, n) and text.shape == (1, 2, n), f"shapes {tuple(dsu.shape)} {tuple(text.shape)}"
     passed.append("shapes")
     assert (dsu[0, :, :N_DELAY_AUDIO] == AUDIO_DELAY_ID).all(), "first frames are not audio_delay_id"
+    assert (dsu[0, :, N_DELAY_AUDIO:] < CODEC_CODEBOOK_SIZE).all(), "delay/eos id inside the audio"
     passed.append("delay_frames")
     silence = tokenizer.convert_tokens_to_ids(SILENCE_PAD)
     assert (text[0, 1] == silence).all(), "speaker 2's text stream is not all [SILENCE_PAD]"
@@ -133,7 +133,6 @@ def main():
                    "aligner": row["aligner"], "target_idx": row["target_idx"], "n_frames": prefix.n_frames,
                    "seconds": round(prefix.seconds, 3), "gain_db": prefix.gain_db,
                    "requested_gain_db": args.gain_db, "overflow_words": prefix.overflow_words,
-                   "codes_equal_to_delay_or_eos": prefix.info["codes_equal_to_delay_or_eos"],
                    "checks_passed": passed}
         torch.save({"dsu": prefix.dsu, "text": prefix.text, **summary}, os.path.join(out, "prefix.pt"))
         with open(os.path.join(out, "summary.json"), "w") as f:
