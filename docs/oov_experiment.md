@@ -160,19 +160,19 @@ knows F-Actor's token layout lives here.
 |---|---|---|---|
 | TTS clips of the opener + ASR gate | oov-shared `checks/configs/p4_repeat.yaml` (P3: `p3_prefix_tom.yaml`) | cluster: cosy-venv / `$TOOLS_PYTHON` | P3 done; P4 submitted 2026-10-18 |
 | Level of TTS vs Behavior-SD | oov-shared `checks/loudness.py`, result in `checks/LOG.md` | laptop | done: +5.6 dB |
-| Word timings from the known text | oov-shared `checks/align.py`, stage `align` -> `<run dir>/alignment.jsonl` | laptop (`uv sync --group align`) or `$TOOLS_PYTHON` | done, tested on P1 |
+| Word timings from the known text | oov-shared `checks/align.py`, stage `align` -> `<run dir>/alignment.jsonl` | cluster: `$WS/align-venv` (torchaudio 2.8); laptop: `uv sync --group align` | done, tested on P1 |
 | wav + timings -> `dsu`/`text` tensors | `training/prefix.py` (`build_prefix`) | factor-venv / `.venv` | done |
-| Sanity checks without the model | `scripts/analysis/check_prefix.py` -> `outputs/prefix_check/<word>__<voice>/` | laptop | done: all 157 P1 Tom clips pass (2026-10-16) |
-| Gate: words with a usable clip | oov-shared `checks/prefix_gate.py` -> `wordlists/lists/prefix_gate_p4.csv` | laptop | P3 list done; P4 waits for the run |
+| Sanity checks without the model | `scripts/analysis/check_prefix.py` -> `outputs/prefix_check/<word>__<voice>/` | laptop (optional; the smoke test covers it) | done: all 157 P1 Tom clips pass (2026-10-16) |
+| Gate: words with a usable clip | oov-shared `checks/prefix_gate.py` -> `wordlists/lists/prefix_gate_p4.csv` | cluster: any `python3` (commit on the login node) | P3 list done; P4 waits for the run |
 | Configs with a `prefix` block | `scripts/analysis/generate_oov_configs.py --prefix-run-dir ...` | factor-venv | done |
-| Generation hook | `training/inference_example.py` (`config_prefix`, `split_prefix_audio`) | cluster | done, stub-tested; cluster smoke open |
+| Generation hook | `training/inference_example.py` (`config_prefix`, `split_prefix_audio`) | cluster | done; P3 smoke test ran (3 words, 2026-10-18) |
 | Grading only after the prefix, both speakers | `scripts/analysis/oov_common.py` (`enrich_run`), `analyze_oov.py` | `$TOOLS_PYTHON` | done, tested with a fake ASR |
 | Paired experiments | oov-shared `experiments/factor_prefix_repeat.json`, `factor_repeat_baseline.json` | cluster | ready once the P4 gate list exists |
 
 **Data flow.**
 
 ```
-oov-shared run dir (e.g. $WS/checks/p3_prefix_tom, copied to oov-data/checks/)
+oov-shared run dir on the cluster ($WS/checks/p4_repeat)
   audio/<word>__tom.wav (CosyVoice, 24 kHz)   manifest.jsonl (the text)   results.tsv (ASR gate)
       │  asr_roundtrip.py align <config>
       ▼
@@ -181,7 +181,7 @@ oov-shared run dir (e.g. $WS/checks/p3_prefix_tom, copied to oov-data/checks/)
       ▼
   Prefix: dsu [1, 8, N], text [1, 2, N], N = 2 + T, seconds = T * 80 ms
       ├─ scripts/analysis/check_prefix.py -> prefix.wav, frames.tsv, prefix.pt, summary.json
-      └─ (open) generate_dialogue(..., use_speaker_sample=N, dsu_sample=dsu, text_sample=text)
+      └─ generate_dialogue(..., use_speaker_sample=N, dsu_sample=dsu, text_sample=text)
 ```
 
 **Check prefixes (laptop).**
@@ -211,29 +211,96 @@ column -t -s$'\t' outputs/prefix_check/adherer__tom/frames.tsv | less    # text 
   channel (`audio2_label`, `mono2_label`): does the partner produce the word after hearing it?
   Experiments `factor_prefix_repeat.json` / `factor_repeat_baseline.json`.
 
-**Running it (P4).** Once `p4_repeat` is through `tts asr table` on the cluster:
+**Running it (P4), cluster only.** The laptop is needed only for listening. Steps, with what to check after each:
+
+*A. Login node: update, submit the TTS run, wait.*
 
 ```bash
-# laptop: fetch the run, align it, gate it (oov-shared)
-rsync -av unicluster:/pfs/work9/workspace/scratch/ka_udtmx-personaplex/checks/p4_repeat/ ../oov-data/checks/p4_repeat/
-.venv/bin/python checks/asr_roundtrip.py align checks/configs/p4_repeat.yaml --out ../oov-data/checks/p4_repeat
-.venv/bin/python checks/prefix_gate.py ../oov-data/checks/p4_repeat --voice tom \
-    --asr parakeet-tdt:nvidia/parakeet-tdt-1.1b --out wordlists/lists/prefix_gate_p4.csv
-git add wordlists/lists/prefix_gate_p4.* && git commit -m "prefix gate: P4" && git push origin roundtrip
-rsync -av ../oov-data/checks/p4_repeat/alignment.jsonl \
-    unicluster:/pfs/work9/workspace/scratch/ka_udtmx-personaplex/checks/p4_repeat/
-# cluster GPU shell, in /workspace/factor-code: smoke test (delete old outputs: finished configs are skipped)
-rm -rf confs/oov_prefix outputs/oov_prefix
-W=$(sed -n '2,6p' /workspace/oov-shared/wordlists/lists/prefix_gate_p4.csv | cut -d, -f1 | tr '\n' ' ')
+cd ~/oov-shared && git pull && cd ~/f-actor && git pull
+cd ~/oov-shared && sbatch --time=01:30:00 checks/sbatch_roundtrip.sh checks/configs/p4_repeat.yaml
+sacct -X --starttime=today --format=JobID,JobName%20,State,Elapsed | tail -5
+export WS=$(ws_find personaplex)
+wc -l $WS/checks/p4_repeat/{manifest.jsonl,transcripts.jsonl,results.tsv}
+tail -25 ~/oov-shared/oov_roundtrip_<jobid>.log
+```
+Check: `COMPLETED`, 157 / 471 / 472 lines (fewer: timed out, resubmit the same command, it resumes), controls
+`hello`/`water` intact, no `SUSPECT` lines.
+
+*B. One interactive GPU session: align, gate, smoke test.* (`salloc` gives 30 min; if it runs out after the gate,
+start a new one for B4.)
+
+```bash
+salloc -p dev_gpu_h100 --gres=gpu:1 -t 00:30:00
+~/personaplex/cluster/cluster_shell.sh
+
+# B1. one time only: the alignment venv (oov-shared checks/README.md, "Align")
+python3 -m venv $WS/align-venv
+$WS/align-venv/bin/pip install -q --upgrade pip uv
+$WS/align-venv/bin/uv pip install --python $WS/align-venv/bin/python3 \
+    --index-url https://download.pytorch.org/whl/cpu "torch==2.8.*" "torchaudio==2.8.*"
+$WS/align-venv/bin/uv pip install --python $WS/align-venv/bin/python3 numpy soundfile pyyaml
+$WS/align-venv/bin/python3 -c "import torch, torchaudio, soundfile, yaml; from torchaudio.functional import forced_align; print(torch.__version__, torchaudio.__version__, 'forced_align ok')"
+
+# B2. align (~10 min on CPU; first run downloads the 1.2 GB MMS_FA weights)
+cd /workspace/oov-shared
+export TORCH_HOME=$WS/torch-hub
+$WS/align-venv/bin/python3 checks/asr_roundtrip.py align checks/configs/p4_repeat.yaml 2>&1 | grep -v Warning | tail -3
+python3 -c "import json,os; r=[json.loads(l) for l in open(os.path.expandvars('\$WS/checks/p4_repeat/alignment.jsonl'))]; print(len(r), 'rows; bad:', [x['word'] for x in r if len(x['target_idx'])!=1])"
+
+# B3. gate, written into the oov-shared checkout the experiments read
+python3 checks/prefix_gate.py $WS/checks/p4_repeat --voice tom \
+    --asr parakeet-tdt:nvidia/parakeet-tdt-1.1b --out wordlists/lists/prefix_gate_p4.csv | head -15
+
+# B4. smoke test, 5 gated words (old smoke outputs are deleted: finished configs would be skipped)
+cd /workspace/factor-code
+rm -rf confs/oov_prefix outputs/oov_prefix && mkdir -p outputs/oov_prefix
+W=$(sed -n '2,6p' /workspace/oov-shared/wordlists/lists/prefix_gate_p4.csv | cut -d, -f1 | tr '\n' ' '); echo $W
 $FACTOR_PYTHON scripts/analysis/generate_oov_configs.py --words $W \
     --prefix-run-dir '$WS/checks/p4_repeat' --outdir confs/oov_prefix --audio-dir outputs/oov_prefix
-$FACTOR_PYTHON training/run_oov_batch.py --configs-glob 'confs/oov_prefix/*.json'
+$FACTOR_PYTHON training/run_oov_batch.py --configs-glob 'confs/oov_prefix/*.json' 2>&1 | tee outputs/oov_prefix/batch.log
 $TOOLS_PYTHON scripts/analysis/analyze_oov.py --manifest confs/oov_prefix/manifest.tsv \
     --outdir outputs/oov_prefix --asr-backend parakeet-tdt --report outputs/oov_prefix/analysis.tsv
-# cluster login node, in ~/oov-shared: the paired experiments (--time from the smoke run's per-config seconds)
-sbatch --time=04:30:00 sbatch_experiment.sh experiments/factor_prefix_repeat.json
-sbatch --time=04:30:00 sbatch_experiment.sh experiments/factor_repeat_baseline.json
+grep -E "\([0-9]+s\)" outputs/oov_prefix/batch.log
+for f in outputs/oov_prefix/*_pfx.json; do python3 -c "
+import json,sys; r=json.load(open(sys.argv[1])); g=r['generation']; gr=list(r['grading'].values())[0]
+print(sys.argv[1].split('/')[-1], g['ended_by'], 'prefix:', gr['prefix_label'], '| brian:', gr['audio2_label'], repr(gr['audio2_evidence']))
+print('   brian says:', g['speaker2']['transcript'][:120])" $f; done
 ```
+Check: B1 prints `2.8.0+cpu 2.8.0+cpu forced_align ok`; B2 gives 157 rows and an empty `bad` list; B3 "kept X of 157"
+(about 100+ is good, under ~60 rethink before going on; dropped reasons should be misrecognitions, not lead-ins); B4:
+`prefix: intact` everywhere, and **does Brian say or attempt the word** (`brian:` label and what he says) in most of the
+five; note the seconds per dialogue for the experiments' `--time`.
+
+*C. Login node: commit the gate list (the container has no git).*
+
+```bash
+cd ~/oov-shared && git add wordlists/lists/prefix_gate_p4.* && git commit -m "prefix gate: P4" && git push origin roundtrip
+```
+
+*D. Laptop: listen to the smoke test.*
+
+```bash
+rsync -av unicluster:/pfs/work9/workspace/scratch/ka_udtmx-personaplex/factor-outputs/oov_prefix/ \
+    ~/Projects/GitHub_Repos/oov-data/f-actor/outputs/oov_prefix/
+cd ~/Projects/GitHub_Repos/oov-data/f-actor/outputs/oov_prefix && mpv *_pfx.wav *_pfx_c2_cont.wav
+```
+Check: Tom's request flows into the dialogue (no click or gap), voices stay the same, Brian's attempt at the word is
+audible near the start of `_c2_cont`. Go on only if Brian attempts the word in most of the five.
+
+*E. Login node: the paired experiments.*
+
+```bash
+cd ~/oov-shared
+~/personaplex/cluster/cluster_run.sh /workspace/oov-shared/run_experiment.sh experiments/factor_prefix_repeat.json prepare
+~/personaplex/cluster/cluster_run.sh /workspace/oov-shared/run_experiment.sh experiments/factor_repeat_baseline.json prepare
+# --time = kept words x 3 reps x seconds per dialogue (B4) + ~30 min
+sbatch --time=05:00:00 sbatch_experiment.sh experiments/factor_prefix_repeat.json
+sbatch --time=05:00:00 sbatch_experiment.sh experiments/factor_repeat_baseline.json
+ls $WS/exps/factor_prefix_repeat/gen/factor/outputs/*.json | wc -l     # progress: towards kept x 3
+```
+Check: both `prepare` runs report the same word count; a timed-out job is resubmitted unchanged (finished dialogues
+are skipped). Results: `$WS/exps/<name>/grade-parakeet-tdt/factor_analysis.tsv` per experiment, band table with
+`s2 audio%` at the end of each job's log; pair the two by word and repeat.
 
 **Telling prefixed runs from regular ones.**
 
