@@ -8,6 +8,7 @@ from device_utils import get_device
 from huggingface_hub import snapshot_download
 from inference_audio.nano_decode import convert_to_audio
 from inference_audio.nano_decode import load_model as load_nanocodecs
+from prefix import AUDIO_EOS_ID, N_DELAY_AUDIO, SAMPLES_PER_FRAME, build_prefix
 from special_tokens import TEXT_STREAM_TOKENS
 from modeling_dsu import DSULlama
 from transformers import AutoConfig, AutoTokenizer
@@ -112,6 +113,36 @@ def remove_special_tokens(text):
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     return cleaned
 
+def config_prefix(config, nanocodec_model, tokenizer):
+    """The config's optional "prefix" (a fixed first turn by speaker 1, see training/prefix.py and
+    docs/oov_experiment.md "Prefix experiment") as a built Prefix, or None."""
+    p = config.get("prefix")
+    if not p:
+        return None
+    if p.get("speaker", "speaker1") != "speaker1" or not config["speaker1"].get("starts", False):
+        raise ValueError("prefix: only a first turn by speaker1 (who starts the dialogue) is supported")
+    wav = os.path.expandvars(p["wav"])
+    if not os.path.exists(wav):
+        raise FileNotFoundError(f"prefix wav not found: {wav} (from {p['wav']!r})")
+    return build_prefix(wav, p["words"], nanocodec_model, tokenizer, gain_db=p.get("gain_db", 0.0))
+
+
+def split_prefix_audio(c1_file, prefix):
+    """Cut speaker 1's channel at the end of the prefix -> (<base>_prefix.wav, <base>_cont.wav).
+
+    The decoded audio starts at frame N_DELAY_AUDIO, so the prefix is the first n_frames - N_DELAY_AUDIO
+    codec frames. Grading reads the _cont file (scripts/analysis/oov_common.py enrich_run).
+    """
+    import soundfile as sf
+
+    audio, sr = sf.read(c1_file)
+    cut = (prefix.n_frames - N_DELAY_AUDIO) * SAMPLES_PER_FRAME
+    base, ext = os.path.splitext(c1_file)
+    sf.write(f"{base}_prefix{ext}", audio[:cut], sr)
+    sf.write(f"{base}_cont{ext}", audio[cut:], sr)
+    return f"{base}_prefix{ext}", f"{base}_cont{ext}"
+
+
 def generate_dialogue(model, tokenizer, nanocodec_model, config):
     """Generate one dialogue with an already-loaded model.
 
@@ -139,6 +170,17 @@ def generate_dialogue(model, tokenizer, nanocodec_model, config):
     input_ids = inputs.input_ids.to(device)
     attention_mask = inputs.attention_mask.to(device)
 
+    # optional fixed first turn: generate() copies its N frames and generates from frame N on
+    prefix = config_prefix(config, nanocodec_model, tokenizer)
+    if prefix is not None:
+        print(f"Prefix: {prefix.n_frames} frames ({prefix.seconds:.2f}s) from {config['prefix']['wav']}")
+        dsu_sample, text_sample = prefix.dsu.to(device), prefix.text.to(device)
+        n_prefix = prefix.n_frames
+    else:
+        dsu_sample = torch.zeros(1, 8, 1, dtype=torch.int64).to(device)  # placeholder
+        text_sample = torch.zeros(1, 2, 1, dtype=torch.int64).to(device)  # placeholder
+        n_prefix = 0
+
     # generate dialogue
     print("Generating dialogue...")
     with torch.no_grad():
@@ -154,13 +196,9 @@ def generate_dialogue(model, tokenizer, nanocodec_model, config):
             eos_token_id=tokenizer.eos_token_id,
             tokenizer=tokenizer,
             stop_strings=["<|EOS|>"],
-            use_speaker_sample=0,
-            dsu_sample=torch.zeros(1, 8, 1, dtype=torch.int64).to(
-                device
-            ),  # placeholder
-            text_sample=torch.zeros(1, 2, 1, dtype=torch.int64).to(
-                device
-            ),  # placeholder
+            use_speaker_sample=n_prefix,
+            dsu_sample=dsu_sample,
+            text_sample=text_sample,
             n_delay_text_stream=0,
             n_delay_audio_stream=2,
             talk_to_itself=True,
@@ -178,30 +216,54 @@ def generate_dialogue(model, tokenizer, nanocodec_model, config):
 
     convert_to_audio(nanocodec_model, dsus, out_audio_file)
     print("Dialogue saved to ", out_audio_file)
+    base, ext = os.path.splitext(out_audio_file)
 
-    # decode generated text
+    # how generation ended: generate() stops when any head emits AUDIO_EOS_ID (a real codec code can equal it,
+    # see training/prefix.py), else after max_length generated frames
+    n_total = len(generated_dsu_ids[0])
+    ended_by = "eos_id" if any(h[-1] == AUDIO_EOS_ID for h in generated_dsu_ids) else "max_length"
+
+    # decode generated text; with a prefix, its N frames are forced, not generated
     print("Decoding generated text")
-    text_speaker1 = remove_special_tokens(tokenizer.decode(generated_text_ids[0], skip_special_tokens=False))
-    text_speaker2 = remove_special_tokens(tokenizer.decode(generated_text_ids[1], skip_special_tokens=False))
+    decode = lambda ids: remove_special_tokens(tokenizer.decode(ids, skip_special_tokens=False))
+    text_speaker1 = decode(generated_text_ids[0][n_prefix:])
+    text_speaker2 = decode(generated_text_ids[1][n_prefix:])
+
+    audio_files = {
+        "wav": os.path.basename(out_audio_file),
+        "c1": os.path.basename(f"{base}_c1{ext}"),
+        "c2": os.path.basename(f"{base}_c2{ext}"),
+    }
+    generation = {
+        "speaker1": {"name": speaker1["name"], "transcript": text_speaker1},
+        "speaker2": {"name": speaker2["name"], "transcript": text_speaker2},
+        "n_generated_frames": n_total - n_prefix,
+        "ended_by": ended_by,
+    }
+    record_prefix = None
+    if prefix is not None:
+        c1_prefix, c1_cont = split_prefix_audio(f"{base}_c1{ext}", prefix)
+        audio_files.update(c1_prefix=os.path.basename(c1_prefix), c1_cont=os.path.basename(c1_cont))
+        generation["speaker1"]["prefix_transcript"] = decode(generated_text_ids[0][:n_prefix])
+        generation["speaker2"]["prefix_transcript"] = decode(generated_text_ids[1][:n_prefix])
+        record_prefix = {
+            "wav": config["prefix"]["wav"], "text": config["prefix"].get("text"),
+            "source": config["prefix"].get("source"), "n_frames": prefix.n_frames,
+            "seconds": round(prefix.seconds, 3), "gain_db": prefix.gain_db,
+            "overflow_words": prefix.overflow_words, **prefix.info,
+        }
 
     # save one canonical run record next to the audio (config, transcripts,
     # audio paths -- and later, in place, whatever enrich_run() adds)
-    base, ext = os.path.splitext(out_audio_file)
     record_file = base + ".json"
     with open(record_file, "w") as f:
         json.dump(
             {
                 "meta": config.get("meta", {}),
                 "config": config,
-                "audio": {
-                    "wav": os.path.basename(out_audio_file),
-                    "c1": os.path.basename(f"{base}_c1{ext}"),
-                    "c2": os.path.basename(f"{base}_c2{ext}"),
-                },
-                "generation": {
-                    "speaker1": {"name": speaker1["name"], "transcript": text_speaker1},
-                    "speaker2": {"name": speaker2["name"], "transcript": text_speaker2},
-                },
+                "audio": audio_files,
+                "generation": generation,
+                **({"prefix": record_prefix} if record_prefix else {}),
             },
             f,
             indent=2,
