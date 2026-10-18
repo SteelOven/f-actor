@@ -170,9 +170,10 @@ def main():
     parser.add_argument("--prefix-voice", default="tom", dest="prefix_voice")
     parser.add_argument("--prefix-gain-db", type=float, default=DEFAULT_PREFIX_GAIN_DB, dest="prefix_gain_db")
     args = parser.parse_args()
-    for name in ("narrative_explainer", "narrative_listener"):
-        if "{word}" not in getattr(args, name):
-            parser.error(f"--{name.replace('_', '-')} must contain {{word}}")
+    # the explainer must be told the word; the listener may not be (e.g. the prefix "listen" variant, where
+    # speaker 2 only hears the word in speaker 1's prefix: docs/oov_experiment.md "Prefix experiment")
+    if "{word}" not in args.narrative_explainer:
+        parser.error("--narrative-explainer must contain {word}")
 
     words = [w.lower() for w in args.words]
     if args.words_file:
