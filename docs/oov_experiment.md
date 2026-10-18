@@ -163,8 +163,11 @@ knows F-Actor's token layout lives here.
 | Word timings from the known text | oov-shared `checks/align.py`, stage `align` -> `<run dir>/alignment.jsonl` | laptop (`uv sync --group align`) or `$TOOLS_PYTHON` | done, tested on P1 |
 | wav + timings -> `dsu`/`text` tensors | `training/prefix.py` (`build_prefix`) | factor-venv / `.venv` | done |
 | Sanity checks without the model | `scripts/analysis/check_prefix.py` -> `outputs/prefix_check/<word>__<voice>/` | laptop | done: all 157 P1 Tom clips pass (2026-10-16) |
-| Generation hook (config key `prefix`) | `training/inference_example.py`, `training/run_oov_batch.py` | cluster | open |
-| Grading only after the prefix | `scripts/analysis/oov_common.py` (`enrich_run`) | `$TOOLS_PYTHON` | open, **required**: c1 contains the prefix |
+| Gate: words with a usable clip | oov-shared `checks/prefix_gate.py` -> `wordlists/lists/prefix_gate_p3.csv` | laptop | done (code); waits for P3 |
+| Configs with a `prefix` block | `scripts/analysis/generate_oov_configs.py --prefix-run-dir ...` | factor-venv | done |
+| Generation hook | `training/inference_example.py` (`config_prefix`, `split_prefix_audio`) | cluster | done, stub-tested; cluster smoke open |
+| Grading only after the prefix | `scripts/analysis/oov_common.py` (`enrich_run`), `analyze_oov.py` | `$TOOLS_PYTHON` | done, tested with a fake ASR |
+| Paired experiments | oov-shared `experiments/factor_prefix_tom.json`, `factor_gated_baseline.json` | cluster | ready once the gate list exists |
 
 **Data flow.**
 
@@ -199,9 +202,43 @@ column -t -s$'\t' outputs/prefix_check/adherer__tom/frames.tsv | less    # text 
   peaks, ~0.003% of samples), e.g. `quokka` +2.0 dB; the 157 prefixes still average -17.2 dBFS active speech vs
   Behavior-SD's -16.1, inside F-Actor's own output range. A soft limiter would recover the full gain if needed.
 
+**Running it.** Everything below assumes P3 is finished (`table` stage done).
+
+```bash
+# laptop, oov-shared: gate with the grading ASR (backend parakeet-tdt = Parakeet 1.1b), commit the list
+uv run python checks/prefix_gate.py ../oov-data/checks/p3_prefix_tom --voice tom \
+    --asr parakeet-tdt:nvidia/parakeet-tdt-1.1b --out wordlists/lists/prefix_gate_p3.csv
+# cluster, once (interactive shell, network for the MMS_FA weights): word timings for the P3 clips
+$TOOLS_PYTHON checks/asr_roundtrip.py align checks/configs/p3_prefix_tom.yaml
+# cluster: smoke test first, directly in f-actor (3 words, 1 rep), then listen to *_c1_cont.wav
+python scripts/analysis/generate_oov_configs.py --words quokka schadenfreude water \
+    --prefix-run-dir '$WS/checks/p3_prefix_tom' --outdir confs/oov_prefix --audio-dir outputs/oov_prefix
+python training/run_oov_batch.py --configs-glob 'confs/oov_prefix/*.json'
+$TOOLS_PYTHON scripts/analysis/analyze_oov.py --manifest confs/oov_prefix/manifest.tsv \
+    --outdir outputs/oov_prefix --asr-backend parakeet-tdt --report outputs/oov_prefix/analysis.tsv
+# cluster, login node, in ~/oov-shared: the paired experiments
+sbatch sbatch_experiment.sh experiments/factor_prefix_tom.json
+sbatch sbatch_experiment.sh experiments/factor_gated_baseline.json
+```
+
+**Telling prefixed runs from regular ones.**
+
+| Level | Prefixed | Regular |
+|---|---|---|
+| directory | `$WS/exps/factor_prefix_tom/`, `outputs/oov_prefix/` | `$WS/exps/factor_gated_baseline/`, `outputs/oov/` |
+| config / record | `"prefix"` block; `meta.prefix` = source run | neither |
+| file names | `<word>_r<n>_pfx*.wav`, plus `_c1_prefix.wav`, `_c1_cont.wav` | `<word>_r<n>*.wav` |
+| transcripts | `generation.*.transcript` = generated part, `prefix_transcript` = forced part | `transcript` only |
+| grading entries | `graded_region: continuation`, `prefix_label`/`prefix_score` (control) | `graded_region: full` (missing in old records = full) |
+| `manifest.tsv`, `analysis.tsv` | column `prefix` = source wav | column empty |
+
+Every run also records `generation.n_generated_frames` and `generation.ended_by` (`eos_id` or `max_length`).
+
 **Gotchas.**
-- The decoded output still starts with the prefix, and the existing grading transcribes the whole Tom channel:
-  without the grading fix every prefixed run "contains" the word.
+- Grading a prefixed run with code older than this section would transcribe the prefix too; `enrich_run` refuses
+  to reuse an entry whose `graded_region` does not match the run.
+- `prefix_label` should be intact for every gated word; a run where it is not had its prefix damaged in decoding
+  and is worth a listen before counting it.
 - Codes 4030/4031 are both F-Actor's delay/EOS ids *and* ordinary NanoCodec codes (codebook size 4032): Behavior-SD
   audio has a few per channel (mostly codebook 2). Harmless in a prefix; but `generate` stops as soon as any head
   samples 4031, so a genuine 4031 code can end a generated dialogue early. Not changed, worth knowing when reading
