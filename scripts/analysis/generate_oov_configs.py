@@ -17,6 +17,12 @@ Usage:
     # not two.
     python scripts/analysis/generate_oov_configs.py --words-file ../oov-shared/wordlists/oov_wordlist.csv
 
+    # with a fixed first turn by speaker 1 (TTS clip of the word from an oov-shared
+    # round-trip run that has alignment.jsonl; see docs/oov_experiment.md "Prefix
+    # experiment"). Output files get a _pfx suffix.
+    python scripts/analysis/generate_oov_configs.py --words quokka water \
+        --prefix-run-dir '$WS/checks/p3_prefix_tom' --outdir confs/oov_prefix --audio-dir outputs/oov_prefix
+
 Then run the generated configs:
     for f in confs/oov/*.json; do
         python training/inference_example.py --config "$f"
@@ -56,8 +62,40 @@ NARRATIVE_LISTENER = (
 )
 
 
-def make_config(word, speaker1, speaker2, rep, args, speech_count, narrative_count, band):
+# CosyVoice clips vs Behavior-SD's level (oov-shared checks/LOG.md, 2026-10-16; = training/prefix.py's
+# COSYVOICE_GAIN_DB, not imported so this script stays free of torch)
+DEFAULT_PREFIX_GAIN_DB = 5.6
+
+
+def load_prefixes(run_dir, voice):
+    """{word: alignment row} for one voice of an oov-shared round-trip run (its `align` stage output)."""
+    path = os.path.join(os.path.expandvars(run_dir), "alignment.jsonl")
+    if not os.path.exists(path):
+        sys.exit(f"error: {path} not found - run oov-shared's `asr_roundtrip.py align` on that run first")
+    with open(path) as f:
+        rows = [json.loads(line) for line in f if line.strip()]
+    return {r["word"]: r for r in rows if r["voice"] == voice}
+
+
+def make_prefix(row, args):
+    """The config's "prefix" block (read by training/inference_example.py)."""
     return {
+        "speaker": "speaker1",
+        # "$WS/..." is kept as given (expanded at generation, so the config works in and outside the container);
+        # anything else is made absolute, so generation does not depend on the current directory
+        "wav": os.path.join(args.prefix_run_dir if "$" in args.prefix_run_dir else os.path.abspath(args.prefix_run_dir),
+                            row["wav"]),
+        "text": row["text"],
+        "words": [{"word": w["word"], "start": w["start"], "dur": w["dur"]} for w in row["words"]],
+        "target_idx": row["target_idx"],
+        "gain_db": args.prefix_gain_db,
+        "source": {"run": os.path.basename(os.path.normpath(args.prefix_run_dir)), "voice": row["voice"],
+                   "aligner": row["aligner"]},
+    }
+
+
+def make_config(word, speaker1, speaker2, rep, args, speech_count, narrative_count, band, prefix_row=None):
+    config = {
         "meta": {
             "word": word,
             "band": band,
@@ -86,6 +124,11 @@ def make_config(word, speaker1, speaker2, rep, args, speech_count, narrative_cou
         "top_k": args.top_k,
         "top_p": args.top_p,
     }
+    if prefix_row is not None:
+        config["prefix"] = make_prefix(prefix_row, args)
+        config["meta"]["prefix"] = config["prefix"]["source"]["run"]
+        config["output_file"] = f"{word}_r{rep}_pfx.wav"
+    return config
 
 
 def load_words_file(path: str) -> list[str]:
@@ -121,6 +164,11 @@ def main():
     parser.add_argument("--temperature", type=float, default=0.9)
     parser.add_argument("--top-k", type=int, default=40, dest="top_k")
     parser.add_argument("--top-p", type=float, default=1.0, dest="top_p")
+    parser.add_argument("--prefix-run-dir", dest="prefix_run_dir",
+                        help="oov-shared round-trip run dir with alignment.jsonl: give speaker 1 a fixed first turn "
+                             "(that run's clip of the word); quote '$WS/...' to keep it unexpanded in the configs")
+    parser.add_argument("--prefix-voice", default="tom", dest="prefix_voice")
+    parser.add_argument("--prefix-gain-db", type=float, default=DEFAULT_PREFIX_GAIN_DB, dest="prefix_gain_db")
     args = parser.parse_args()
     for name in ("narrative_explainer", "narrative_listener"):
         if "{word}" not in getattr(args, name):
@@ -133,13 +181,20 @@ def main():
         parser.error("No words given (use --words or --words-file).")
 
     speaker1, speaker2 = args.speakers.split(",")
+    prefixes = None
+    if args.prefix_run_dir:
+        prefixes = load_prefixes(args.prefix_run_dir, args.prefix_voice)
+        missing = [w for w in words if w not in prefixes]
+        if missing:
+            parser.error(f"no {args.prefix_voice!r} clip aligned in {args.prefix_run_dir} for: {', '.join(missing)} "
+                         "(gate the word list first: oov-shared checks/prefix_gate.py)")
     vocab = load_vocab(args.vocab)
     os.makedirs(args.outdir, exist_ok=True)
 
     manifest_path = os.path.join(args.outdir, "manifest.tsv")
     with open(manifest_path, "w") as manifest:
         manifest.write(
-            "word\tspeech_count\tnarrative_count\tband\trepeat\tconfig\taudio\n"
+            "word\tspeech_count\tnarrative_count\tband\trepeat\tconfig\taudio\tprefix\n"
         )
         for word in words:
             speech_count, narrative_count = vocab.get(word, (0, 0))
@@ -148,6 +203,7 @@ def main():
                 config = make_config(
                     word, speaker1, speaker2, rep, args,
                     speech_count, narrative_count, band,
+                    prefix_row=prefixes[word] if prefixes else None,
                 )
                 config_path = os.path.join(args.outdir, f"{word}_r{rep}.json")
                 with open(config_path, "w") as f:
@@ -155,7 +211,8 @@ def main():
                 audio_path = os.path.join(args.audio_dir, config["output_file"])
                 manifest.write(
                     f"{word}\t{speech_count}\t{narrative_count}\t{band}"
-                    f"\t{rep}\t{config_path}\t{audio_path}\n"
+                    f"\t{rep}\t{config_path}\t{audio_path}"
+                    f"\t{config['prefix']['wav'] if prefixes else ''}\n"
                 )
             print(f"{word:<25}{band:<16}speech={speech_count}")
 
