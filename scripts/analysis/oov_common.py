@@ -177,11 +177,32 @@ def enrich_run(run_json_path, asr, word=None, mos=None):
     naturalness score for the same explainer (c1) channel ASR grades -- one
     number per backend, no fidelity/label split like grading has, since MOS
     scores the audio overall rather than one target word in it.
+
+    Prefixed runs (record["prefix"], a fixed first turn by speaker 1, see
+    training/inference_example.py): everything above is computed on the
+    *continuation* only (audio["c1_cont"]; generation transcripts already
+    exclude the prefix), since the prefix contains the word by construction.
+    The prefix itself (audio["c1_prefix"]) is transcribed and graded as a
+    control (prefix_label/prefix_score: did the word survive the codec in
+    this run?). Every entry records its "graded_region" ("continuation" or
+    "full"); an entry for a prefixed run without it is refused instead of
+    reused, so a run graded by older code is never mistaken for a graded
+    continuation.
     """
     record = load_run(run_json_path)
     target_word = word if word is not None else record.get("meta", {}).get("word")
     run_dir = os.path.dirname(run_json_path)
-    c1_wav = os.path.join(run_dir, record["audio"]["c1"])
+    has_prefix = "prefix" in record
+    region = "continuation" if has_prefix else "full"
+    c1_wav = os.path.join(run_dir, record["audio"]["c1_cont" if has_prefix else "c1"])
+
+    for section in ("asr", "grading", "mos"):
+        for backend, entry in record.get(section, {}).items():
+            if entry.get("graded_region", "full") != region:
+                raise ValueError(
+                    f"{run_json_path}: {section}[{backend}] was computed on region "
+                    f"{entry.get('graded_region', 'full')!r}, this run needs {region!r}; delete that entry and re-grade"
+                )
 
     asr_results = record.setdefault("asr", {})
     if asr.model not in asr_results:
@@ -198,7 +219,12 @@ def enrich_run(run_json_path, asr, word=None, mos=None):
         asr_results[asr.model] = {
             "transcript": transcript,
             "render_wer": round(render_wer, 3),
+            "graded_region": region,
         }
+        if has_prefix:
+            asr_results[asr.model]["prefix_transcript"] = asr.transcribe(
+                os.path.join(run_dir, record["audio"]["c1_prefix"])
+            )
 
     if target_word:
         grading = record.setdefault("grading", {})
@@ -214,12 +240,16 @@ def enrich_run(run_json_path, asr, word=None, mos=None):
                 "audio_label": a_label,
                 "audio_score": round(a_score, 1),
                 "audio_evidence": a_ev,
+                "graded_region": region,
             }
+            if has_prefix:
+                p_label, p_score, _p_ev = grade_word(asr_results[asr.model]["prefix_transcript"], target_word)
+                grading[asr.model].update(prefix_label=p_label, prefix_score=round(p_score, 1))
 
     if mos is not None:
         mos_results = record.setdefault("mos", {})
         if mos.model not in mos_results:
-            mos_results[mos.model] = {"score": round(mos.score(c1_wav), 3)}
+            mos_results[mos.model] = {"score": round(mos.score(c1_wav), 3), "graded_region": region}
 
     save_run(run_json_path, record)
     return record

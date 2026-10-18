@@ -102,6 +102,10 @@ def main():
                 "audio_evidence": grading["audio_evidence"],
                 "render_wer": asr_result["render_wer"],
                 "mos_score": mos_score,
+                # prefixed runs: grades above are of the continuation; prefix_label grades the fixed first turn
+                "prefix": os.path.basename(record["prefix"]["wav"]) if "prefix" in record else "",
+                "prefix_label": grading.get("prefix_label", ""),
+                "graded_region": grading.get("graded_region", "full"),
             }
         )
 
@@ -111,7 +115,8 @@ def main():
 
     # per-run table
     hdr = ["word", "band", "repeat", "mono_label", "mono_score",
-           "audio_label", "audio_score", "audio_evidence", "render_wer", "mos_score"]
+           "audio_label", "audio_score", "audio_evidence", "render_wer", "mos_score",
+           "prefix", "prefix_label", "graded_region"]
     with open(args.report, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=hdr, delimiter="\t")
         w.writeheader()
