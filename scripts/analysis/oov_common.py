@@ -173,6 +173,9 @@ def enrich_run(run_json_path, asr, word=None, mos=None):
     plain dialogue config, so grading is simply skipped there and only the
     ASR transcript is added).
 
+    Speaker 2 (the listener) is transcribed and graded too: asr[..]["transcript2"],
+    grading[..]["mono2_*"/"audio2_*"], same region rule (c2_cont for prefixed runs).
+
     `mos`, if given (a MOS instance), also populates `mos[mos.model]` with a
     naturalness score for the same explainer (c1) channel ASR grades -- one
     number per backend, no fidelity/label split like grading has, since MOS
@@ -195,6 +198,7 @@ def enrich_run(run_json_path, asr, word=None, mos=None):
     has_prefix = "prefix" in record
     region = "continuation" if has_prefix else "full"
     c1_wav = os.path.join(run_dir, record["audio"]["c1_cont" if has_prefix else "c1"])
+    c2_wav = os.path.join(run_dir, record["audio"]["c2_cont" if has_prefix else "c2"])
 
     for section in ("asr", "grading", "mos"):
         for backend, entry in record.get(section, {}).items():
@@ -245,6 +249,18 @@ def enrich_run(run_json_path, asr, word=None, mos=None):
             if has_prefix:
                 p_label, p_score, _p_ev = grade_word(asr_results[asr.model]["prefix_transcript"], target_word)
                 grading[asr.model].update(prefix_label=p_label, prefix_score=round(p_score, 1))
+
+    # speaker 2 (the listener; in the repeat prefix variant the one asked to say the word). Added to existing
+    # entries too, without re-transcribing speaker 1.
+    if "transcript2" not in asr_results[asr.model]:
+        asr_results[asr.model]["transcript2"] = asr.transcribe(c2_wav)
+    if target_word and "audio2_label" not in record["grading"][asr.model]:
+        m2_label, m2_score, _ = grade_word(record["generation"]["speaker2"]["transcript"], target_word)
+        a2_label, a2_score, a2_ev = grade_word(asr_results[asr.model]["transcript2"], target_word)
+        record["grading"][asr.model].update(
+            mono2_label=m2_label, mono2_score=round(m2_score, 1),
+            audio2_label=a2_label, audio2_score=round(a2_score, 1), audio2_evidence=a2_ev,
+        )
 
     if mos is not None:
         mos_results = record.setdefault("mos", {})

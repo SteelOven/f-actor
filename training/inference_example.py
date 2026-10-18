@@ -128,20 +128,22 @@ def config_prefix(config, model, nanocodec_model, tokenizer):
                         audio_delay_id=model.audio_delay_id)
 
 
-def split_prefix_audio(c1_file, prefix):
-    """Cut speaker 1's channel at the end of the prefix -> (<base>_prefix.wav, <base>_cont.wav).
+def split_prefix_audio(channel_file, prefix, write_prefix=True):
+    """Cut one channel at the end of the prefix -> (<base>_prefix.wav or None, <base>_cont.wav).
 
     The decoded audio starts at frame N_DELAY_AUDIO, so the prefix is the first n_frames - N_DELAY_AUDIO
-    codec frames. Grading reads the _cont file (scripts/analysis/oov_common.py enrich_run).
+    codec frames. Grading reads the _cont files (scripts/analysis/oov_common.py enrich_run).
     """
     import soundfile as sf
 
-    audio, sr = sf.read(c1_file)
+    audio, sr = sf.read(channel_file)
     cut = (prefix.n_frames - N_DELAY_AUDIO) * SAMPLES_PER_FRAME
-    base, ext = os.path.splitext(c1_file)
-    sf.write(f"{base}_prefix{ext}", audio[:cut], sr)
+    base, ext = os.path.splitext(channel_file)
+    prefix_file = f"{base}_prefix{ext}" if write_prefix else None
+    if prefix_file:
+        sf.write(prefix_file, audio[:cut], sr)
     sf.write(f"{base}_cont{ext}", audio[cut:], sr)
-    return f"{base}_prefix{ext}", f"{base}_cont{ext}"
+    return prefix_file, f"{base}_cont{ext}"
 
 
 def generate_dialogue(model, tokenizer, nanocodec_model, config):
@@ -243,7 +245,9 @@ def generate_dialogue(model, tokenizer, nanocodec_model, config):
     record_prefix = None
     if prefix is not None:
         c1_prefix, c1_cont = split_prefix_audio(f"{base}_c1{ext}", prefix)
-        audio_files.update(c1_prefix=os.path.basename(c1_prefix), c1_cont=os.path.basename(c1_cont))
+        _, c2_cont = split_prefix_audio(f"{base}_c2{ext}", prefix, write_prefix=False)   # speaker 2 is silent there
+        audio_files.update(c1_prefix=os.path.basename(c1_prefix), c1_cont=os.path.basename(c1_cont),
+                           c2_cont=os.path.basename(c2_cont))
         generation["speaker1"]["prefix_transcript"] = decode(generated_text_ids[0][:n_prefix])
         generation["speaker2"]["prefix_transcript"] = decode(generated_text_ids[1][:n_prefix])
         record_prefix = {

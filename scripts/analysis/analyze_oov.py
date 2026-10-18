@@ -105,6 +105,9 @@ def main():
                 # prefixed runs: grades above are of the continuation; prefix_label grades the fixed first turn
                 "prefix": os.path.basename(record["prefix"]["wav"]) if "prefix" in record else "",
                 "prefix_label": grading.get("prefix_label", ""),
+                "mono2_label": grading["mono2_label"],
+                "audio2_label": grading["audio2_label"],
+                "audio2_evidence": grading["audio2_evidence"],
                 "graded_region": grading.get("graded_region", "full"),
             }
         )
@@ -116,7 +119,7 @@ def main():
     # per-run table
     hdr = ["word", "band", "repeat", "mono_label", "mono_score",
            "audio_label", "audio_score", "audio_evidence", "render_wer", "mos_score",
-           "prefix", "prefix_label", "graded_region"]
+           "prefix", "prefix_label", "mono2_label", "audio2_label", "audio2_evidence", "graded_region"]
     with open(args.report, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=hdr, delimiter="\t")
         w.writeheader()
@@ -134,14 +137,16 @@ def main():
 
     # per-band aggregate
     mos_hdr = f"{'mean MOS':>10}" if mos else ""
-    print(f"\n{'band':<16}{'n':>3}  {'mono intact%':>12}{'audio intact%':>14}{'mean WER':>10}{mos_hdr}")
-    print("-" * (60 + len(mos_hdr)))
+    print(f"\n{'band':<16}{'n':>3}  {'mono intact%':>12}{'audio intact%':>14}{'s2 audio%':>10}"
+          f"{'mean WER':>10}{mos_hdr}")
+    print("-" * (70 + len(mos_hdr)))
     for band in BANDS:
         b = [r for r in results if r["band"] == band]
         if not b:
             continue
         mono_ok = 100 * sum(r["mono_label"] in ("intact", "split") for r in b) / len(b)
         audio_ok = 100 * sum(r["audio_label"] in ("intact", "split") for r in b) / len(b)
+        audio2_ok = 100 * sum(r["audio2_label"] in ("intact", "split") for r in b) / len(b)
         wers = [r["render_wer"] for r in b if r["render_wer"] == r["render_wer"]]
         mean_wer = sum(wers) / len(wers) if wers else float("nan")
         mos_str = ""
@@ -149,7 +154,7 @@ def main():
             mos_scores = [r["mos_score"] for r in b if r["mos_score"] is not None]
             mean_mos = sum(mos_scores) / len(mos_scores) if mos_scores else float("nan")
             mos_str = f"{mean_mos:>10.2f}"
-        print(f"{band:<16}{len(b):>3}  {mono_ok:>11.0f}%{audio_ok:>13.0f}%{mean_wer:>10.2f}{mos_str}")
+        print(f"{band:<16}{len(b):>3}  {mono_ok:>11.0f}%{audio_ok:>13.0f}%{audio2_ok:>9.0f}%{mean_wer:>10.2f}{mos_str}")
 
     print(f"\nPer-run table written to {args.report}")
 
