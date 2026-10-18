@@ -232,16 +232,16 @@ sbatch sbatch_experiment.sh experiments/factor_gated_baseline.json
 | grading entries | `graded_region: continuation`, `prefix_label`/`prefix_score` (control) | `graded_region: full` (missing in old records = full) |
 | `manifest.tsv`, `analysis.tsv` | column `prefix` = source wav | column empty |
 
-Every run also records `generation.n_generated_frames` and `generation.ended_by` (`eos_id` or `max_length`).
+Every run also records `generation.n_generated_frames` and `generation.ended_by` (`eos` or `max_length`).
 
 **Gotchas.**
 - Grading a prefixed run with code older than this section would transcribe the prefix too; `enrich_run` refuses
   to reuse an entry whose `graded_region` does not match the run.
 - `prefix_label` should be intact for every gated word; a run where it is not had its prefix damaged in decoding
   and is worth a listen before counting it.
-- Codes 4030/4031 are both F-Actor's delay/EOS ids *and* ordinary NanoCodec codes (codebook size 4032): Behavior-SD
-  audio has a few per channel (mostly codebook 2). Harmless in a prefix; but `generate` stops as soon as any head
-  samples 4031, so a genuine 4031 code can end a generated dialogue early. Not changed, worth knowing when reading
-  short outputs.
+- Special audio ids: codec codes are 0..4031, the model appends delay = 4032 and EOS = 4033
+  (`modeling_dsu.py`: `audio_vocab_size = config.audio_vocab_size + 2`). Generation passes `model.audio_delay_id`
+  to the builder. (Until 2026-10-18 the builder used 4030 as delay id, i.e. a real code: prefixed runs from before
+  that fix, incl. the first 3-word smoke test, are invalid and must be regenerated.)
 - `alignment.jsonl`'s `score` measures how well the spelling fits the sound, not correctness; gate on the ASR
   (`results.tsv`), not on it.
