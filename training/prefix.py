@@ -137,3 +137,87 @@ def build_prefix(wav_path, words, codec, tokenizer, *, gain_db=0.0, audio_delay_
                   overflow_words=int(overflow), gain_db=round(float(applied_gain), 2),
                   info={"wav": str(wav_path), "n_codes": n_codes, "requested_gain_db": gain_db,
                         "audio_delay_id": audio_delay_id, "tail_s": tail_s})
+
+
+def _pack(speaker1, speaker2, example, tokenizer, audio_delay_id, add_bc_token, add_interrupt_token, max_length):
+    """Codes [4, T] per speaker + the Behavior-SD style example -> (dsu [1, 8, N], text [1, 2, N], overflow_words)."""
+    dsu, text, skip, overflow = adapt_to_text_stream(
+        True,                                   # two text streams, as data.py does for inference
+        np.concatenate([speaker1, speaker2], axis=0),
+        N_DELAY_AUDIO, 0, True,                 # audio delay, text delay, word alignment
+        speaker1.shape[1], example, tokenizer, max_length, audio_delay_id,
+        {"system": 0, "user": 1},
+        add_bc_token=add_bc_token, add_interrupt_token=add_interrupt_token,
+    )
+    if skip:
+        raise ValueError("adapt_to_text_stream skipped the example: the words' tokens do not fit their frames")
+    dsu = torch.from_numpy(np.asarray(dsu, dtype=np.int64)).unsqueeze(0)
+    text = torch.from_numpy(np.asarray(text, dtype=np.int64)).unsqueeze(0)
+    if dsu.shape[-1] != text.shape[-1]:
+        raise ValueError(f"audio has {dsu.shape[-1]} frames but text {text.shape[-1]}")
+    return dsu, text, int(overflow)
+
+
+def build_multiturn_prefix(turns, codec, tokenizer, *, gain_db=0.0, gap_s=0.5, tail_s=0.3,
+                           audio_delay_id=AUDIO_DELAY_ID, add_bc_token=True, add_interrupt_token=True,
+                           max_length=4096):
+    """Several turns by both speakers -> Prefix; the last turn is the one the model answers.
+
+    turns: [{"speaker": 0 | 1, "wav": path, "words": [{"word", "start", "dur"}], "gain_db": optional,
+             "text": optional, any other keys are kept in info["turns"]}], in dialogue order. Speaker 0 is speaker 1 of
+    the config (heads 0-3), speaker 1 is speaker 2 (heads 4-7). Each clip goes onto its speaker's channel, the other
+    channel stays silent (encoded silence, as in build_prefix).
+
+    Timing: the first clip starts at 0, as in build_prefix. Every later turn is placed so that its first word begins
+    gap_s after the previous turn's last word (Behavior-SD median gap: 0.49 s); the clips' own lead-in and trailing
+    silence do not count. Trailing silence of every clip is trimmed (set_tail), and the last turn ends in exactly
+    tail_s of digital silence (see build_prefix: a cut right after speech makes the model emit EOS at once).
+    Word timings are shifted by the clip's offset, so the text streams come out as the training code makes them.
+    Two clips of the same speaker may not overlap in time. Raises ValueError if the text does not fit the frames."""
+    if not turns:
+        raise ValueError("turns is empty")
+    placed, cursor, ch_end = [], 0.0, {0: 0, 1: 0}
+    for k, t in enumerate(turns):
+        spk = {0: 0, 1: 1, "speaker1": 0, "speaker2": 1}[t["speaker"]]
+        audio, applied = load_audio(t["wav"], t.get("gain_db", gain_db))
+        audio = set_tail(audio, applied, t["words"], tail_s if k == len(turns) - 1 else 0.0)
+        offset = 0.0 if k == 0 else cursor + gap_s - t["words"][0]["start"]
+        if offset < 0:
+            raise ValueError(f"turn {k}: its lead-in ({t['words'][0]['start']:.2f} s) is longer than the time before it")
+        off_samples = int(round(offset * CODEC_SR))
+        offset = off_samples / CODEC_SR
+        if off_samples < ch_end[spk]:
+            raise ValueError(f"turn {k}: overlaps the previous clip of speaker {spk}")
+        ch_end[spk] = off_samples + len(audio)
+        last = t["words"][-1]
+        cursor = offset + (last["start"] + last["dur"])
+        placed.append((spk, t, audio, applied, off_samples, offset))
+
+    total = max(p[4] + len(p[2]) for p in placed)
+    channels = [np.zeros(total, dtype=np.float32), np.zeros(total, dtype=np.float32)]
+    for spk, _, audio, _, off_samples, _ in placed:
+        channels[spk][off_samples: off_samples + len(audio)] = audio
+    speaker1, speaker2 = encode(codec, channels[0]), encode(codec, channels[1])
+    if speaker1.shape != speaker2.shape:
+        raise ValueError(f"codes of the two channels differ in shape: {speaker1.shape} {speaker2.shape}")
+    n_codes = speaker1.shape[1]
+    if max(speaker1.max(), speaker2.max()) >= CODEC_CODEBOOK_SIZE or audio_delay_id < CODEC_CODEBOOK_SIZE:
+        raise ValueError(f"codes must be < {CODEC_CODEBOOK_SIZE} <= audio_delay_id ({audio_delay_id})")
+
+    utterances = []
+    for spk, t, _, _, _, offset in placed:
+        words = [{"word": w["word"], "start": offset + w["start"], "dur": w["dur"]} for w in t["words"]]
+        utterances.append({"speaker_idx": spk, "uttr_type": "normal", "start_time": words[0]["start"],
+                           "end_time": words[-1]["start"] + words[-1]["dur"], "words": words})
+    utterances[-1]["end_time"] = n_codes * SAMPLES_PER_FRAME / CODEC_SR   # fps is derived from it, as in synthetic_example
+
+    dsu, text, overflow = _pack(speaker1, speaker2, {"utterances": utterances}, tokenizer, audio_delay_id,
+                                add_bc_token, add_interrupt_token, max_length)
+    info_turns = [{**{k: v for k, v in t.items() if k != "words"}, "speaker": spk, "offset_s": round(offset, 3),
+                   "start_s": round(u["start_time"], 3), "end_s": round(u["words"][-1]["start"] + u["words"][-1]["dur"], 3),
+                   "gain_db": round(float(applied), 2)}
+                  for (spk, t, _, applied, _, offset), u in zip(placed, utterances)]
+    return Prefix(dsu=dsu, text=text, n_frames=dsu.shape[-1], seconds=n_codes * SAMPLES_PER_FRAME / CODEC_SR,
+                  overflow_words=overflow, gain_db=info_turns[-1]["gain_db"],
+                  info={"n_codes": n_codes, "audio_delay_id": audio_delay_id, "gap_s": gap_s, "tail_s": tail_s,
+                        "turns": info_turns})
