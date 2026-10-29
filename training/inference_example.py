@@ -8,7 +8,7 @@ from device_utils import get_device
 from huggingface_hub import snapshot_download
 from inference_audio.nano_decode import convert_to_audio
 from inference_audio.nano_decode import load_model as load_nanocodecs
-from prefix import N_DELAY_AUDIO, SAMPLES_PER_FRAME, build_prefix
+from prefix import N_DELAY_AUDIO, SAMPLES_PER_FRAME, build_multiturn_prefix, build_prefix
 from special_tokens import TEXT_STREAM_TOKENS
 from modeling_dsu import DSULlama
 from transformers import AutoConfig, AutoTokenizer
@@ -114,18 +114,34 @@ def remove_special_tokens(text):
     return cleaned
 
 def config_prefix(config, model, nanocodec_model, tokenizer):
-    """The config's optional "prefix" (a fixed first turn by speaker 1, see training/prefix.py and
-    docs/oov_experiment.md "Prefix experiment") as a built Prefix, or None."""
+    """The config's optional "prefix" (a fixed start of the dialogue, see training/prefix.py and
+    docs/oov_experiment.md "Prefix experiment") as a built Prefix, or None.
+
+    Two shapes: {"wav", "words", ...} is one first turn by speaker1 (who starts the dialogue); {"turns": [...],
+    "gap_s", "tail_s"} is several turns by both speakers, each {"speaker": "speaker1" | "speaker2", "wav", "words"},
+    the first by speaker1 and the last the one the model answers (build_multiturn_prefix)."""
     p = config.get("prefix")
     if not p:
         return None
+    expand = lambda w: _existing(os.path.expandvars(w), w)
+    if "turns" in p:
+        if p["turns"][0].get("speaker", "speaker1") != "speaker1" or not config["speaker1"].get("starts", False):
+            raise ValueError("prefix: the first turn must be by speaker1 (who starts the dialogue)")
+        turns = [{**t, "wav": expand(t["wav"]), "speaker": t.get("speaker", "speaker1")} for t in p["turns"]]
+        kw = {k: p[k] for k in ("gap_s", "tail_s") if k in p}
+        return build_multiturn_prefix(turns, nanocodec_model, tokenizer, gain_db=p.get("gain_db", 0.0),
+                                      audio_delay_id=model.audio_delay_id, **kw)
     if p.get("speaker", "speaker1") != "speaker1" or not config["speaker1"].get("starts", False):
         raise ValueError("prefix: only a first turn by speaker1 (who starts the dialogue) is supported")
-    wav = os.path.expandvars(p["wav"])
-    if not os.path.exists(wav):
-        raise FileNotFoundError(f"prefix wav not found: {wav} (from {p['wav']!r})")
+    wav = expand(p["wav"])
     return build_prefix(wav, p["words"], nanocodec_model, tokenizer, gain_db=p.get("gain_db", 0.0),
                         audio_delay_id=model.audio_delay_id, tail_s=p.get("tail_s"))
+
+
+def _existing(path, given):
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"prefix wav not found: {path} (from {given!r})")
+    return path
 
 
 def split_prefix_audio(channel_file, prefix, write_prefix=True):
@@ -144,6 +160,21 @@ def split_prefix_audio(channel_file, prefix, write_prefix=True):
         sf.write(prefix_file, audio[:cut], sr)
     sf.write(f"{base}_cont{ext}", audio[cut:], sr)
     return prefix_file, f"{base}_cont{ext}"
+
+
+def split_prefix_channels(base, ext, prefix):
+    """Both channels of a prefixed run cut at the end of the prefix -> the run record's "audio" entries.
+
+    With a single-turn prefix speaker 2 is silent there, so only its continuation is written; with turns
+    (prefix.info["turns"]) speaker 2 speaks in the prefix too and gets a _c2_prefix file."""
+    multi = "turns" in prefix.info
+    c1_prefix, c1_cont = split_prefix_audio(f"{base}_c1{ext}", prefix)
+    c2_prefix, c2_cont = split_prefix_audio(f"{base}_c2{ext}", prefix, write_prefix=multi)
+    files = dict(c1_prefix=os.path.basename(c1_prefix), c1_cont=os.path.basename(c1_cont),
+                 c2_cont=os.path.basename(c2_cont))
+    if multi:
+        files["c2_prefix"] = os.path.basename(c2_prefix)
+    return files
 
 
 def generate_dialogue(model, tokenizer, nanocodec_model, config):
@@ -176,7 +207,8 @@ def generate_dialogue(model, tokenizer, nanocodec_model, config):
     # optional fixed first turn: generate() copies its N frames and generates from frame N on
     prefix = config_prefix(config, model, nanocodec_model, tokenizer)
     if prefix is not None:
-        print(f"Prefix: {prefix.n_frames} frames ({prefix.seconds:.2f}s) from {config['prefix']['wav']}")
+        what = f"{len(prefix.info['turns'])} turns" if "turns" in prefix.info else f"from {config['prefix']['wav']}"
+        print(f"Prefix: {prefix.n_frames} frames ({prefix.seconds:.2f}s) {what}")
         dsu_sample, text_sample = prefix.dsu.to(device), prefix.text.to(device)
         n_prefix = prefix.n_frames
     else:
@@ -244,14 +276,12 @@ def generate_dialogue(model, tokenizer, nanocodec_model, config):
     }
     record_prefix = None
     if prefix is not None:
-        c1_prefix, c1_cont = split_prefix_audio(f"{base}_c1{ext}", prefix)
-        _, c2_cont = split_prefix_audio(f"{base}_c2{ext}", prefix, write_prefix=False)   # speaker 2 is silent there
-        audio_files.update(c1_prefix=os.path.basename(c1_prefix), c1_cont=os.path.basename(c1_cont),
-                           c2_cont=os.path.basename(c2_cont))
+        audio_files.update(split_prefix_channels(base, ext, prefix))
         generation["speaker1"]["prefix_transcript"] = decode(generated_text_ids[0][:n_prefix])
         generation["speaker2"]["prefix_transcript"] = decode(generated_text_ids[1][:n_prefix])
         record_prefix = {
-            "wav": config["prefix"]["wav"], "text": config["prefix"].get("text"),
+            "wav": config["prefix"].get("wav") or config["prefix"]["turns"][-1]["wav"],   # turns: the last request
+            "text": config["prefix"].get("text") or config["prefix"].get("turns", [{}])[-1].get("text"),
             "source": config["prefix"].get("source"), "n_frames": prefix.n_frames,
             "seconds": round(prefix.seconds, 3), "gain_db": prefix.gain_db,
             "overflow_words": prefix.overflow_words, **prefix.info,
