@@ -1,0 +1,47 @@
+{
+  "device": "cpu",
+  "prefixes": {
+    "water|tail=None": {
+      "n_frames": 42,
+      "gain_db": 5.6,
+      "overflow_words": 0,
+      "dsu": "12fb3bf47a00f6db",
+      "text": "5ca25d492b27ea79"
+    },
+    "water|tail=0.3": {
+      "n_frames": 44,
+      "gain_db": 5.6,
+      "overflow_words": 0,
+      "dsu": "1b6be353f6225611",
+      "text": "8327b1d1cd65e1fa"
+    },
+    "hello|tail=None": {
+      "n_frames": 60,
+      "gain_db": 3.98,
+      "overflow_words": 0,
+      "dsu": "58d58623dfa33c8b",
+      "text": "3dbf543977a8b67f"
+    },
+    "hello|tail=0.3": {
+      "n_frames": 62,
+      "gain_db": 3.98,
+      "overflow_words": 0,
+      "dsu": "7d5f6ea44cf52839",
+      "text": "cf6a554624d5d28f"
+    },
+    "archband|tail=None": {
+      "n_frames": 53,
+      "gain_db": 5.6,
+      "overflow_words": 0,
+      "dsu": "07f4bbe8cb030894",
+      "text": "f9a5fb844e40315b"
+    },
+    "archband|tail=0.3": {
+      "n_frames": 55,
+      "gain_db": 5.6,
+      "overflow_words": 0,
+      "dsu": "386cefd3ba42ddff",
+      "text": "b9091fecbc0952bd"
+    }
+  }
+}
