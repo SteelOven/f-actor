@@ -20,7 +20,8 @@ text "Okay, {word}."; gap 0.5 s (Behavior-SD median); tail 0.3 s; gain +5.6 dB T
 - [ ] 1. cluster: oov-shared `p5_demo` (Tom requests + Gweneth replies, ~12 frequent words), ASR gate, align, Gweneth loudness
 - [ ] 2. multi-turn prefix in code:
   - [x] `training/prefix.py` `build_multiturn_prefix` (stub-codec selftest `scripts/analysis/prefix_selftest.py`; golden check still PASS)
-  - [ ] `config_prefix` (`turns`) and `split_prefix_audio` (channel 2 now has speech in the prefix)
+  - [x] `config_prefix` (`prefix.turns`, `gap_s`, `tail_s`) and `split_prefix_channels` (`_c2_prefix` written when there are turns);
+    selftest covers the config path; 2-frame smoke run with the real model OK (`oov-data/scratch_eos/multiturn_smoke/`)
   - [ ] `check_prefix` multi-turn mode
   - [ ] generator flags (`--prefix-demos` ...)
   - [ ] grading of a non-silent channel 2 / `prefix_label` on the last request only

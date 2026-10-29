@@ -109,6 +109,47 @@ def main():
         print("ok  rejected:", e)
     else:
         raise AssertionError("negative offset accepted")
+    # 4. config path: single-turn and turns configs build what the builders build; channel files per kind
+    from types import SimpleNamespace
+
+    from inference_example import config_prefix, split_prefix_channels
+
+    model = SimpleNamespace(audio_delay_id=4032)
+    os.environ["SELFTEST_DIR"] = tmp
+    base_cfg = {"speaker1": {"starts": True}}
+    c = config_prefix({**base_cfg, "prefix": {"wav": "$SELFTEST_DIR/a.wav", "words": wa, "tail_s": 0.3}},
+                      model, codec, tokenizer)
+    assert torch.equal(c.dsu, old.dsu) and torch.equal(c.text, old.text), "single-turn config differs from build_prefix"
+    turns_cfg = {"turns": [{"speaker": "speaker1", "wav": "$SELFTEST_DIR/a.wav", "words": wa, "text": "hello there"},
+                           {"speaker": "speaker2", "wav": "$SELFTEST_DIR/b.wav", "words": wb}],
+                 "gap_s": 0.5, "tail_s": 0.3}
+    c2 = config_prefix({**base_cfg, "prefix": turns_cfg}, model, codec, tokenizer)
+    assert torch.equal(c2.dsu, p.dsu) and torch.equal(c2.text, p.text), "turns config differs from build_multiturn_prefix"
+    for bad in ({"turns": [{**turns_cfg["turns"][1]}]}, {"turns": turns_cfg["turns"][:1], "speaker": "speaker2"}):
+        try:
+            config_prefix({"speaker1": {"starts": False}, "prefix": bad}, model, codec, tokenizer)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("prefix not starting with speaker1 accepted")
+    try:
+        config_prefix({**base_cfg, "prefix": {"turns": [{"speaker": "speaker1", "wav": "$SELFTEST_DIR/none.wav", "words": wa}]}},
+                      model, codec, tokenizer)
+    except FileNotFoundError:
+        pass
+    else:
+        raise AssertionError("missing wav accepted")
+    for name, pf, want in (("single", old, {"c1_prefix", "c1_cont", "c2_cont"}),
+                           ("turns", p, {"c1_prefix", "c1_cont", "c2_cont", "c2_prefix"})):
+        base = os.path.join(tmp, name)
+        n = (pf.n_frames - N_DELAY_AUDIO + 10) * SAMPLES_PER_FRAME
+        for ch in ("c1", "c2"):
+            sf.write(f"{base}_{ch}.wav", np.zeros(n, dtype=np.float32), CODEC_SR)
+        files = split_prefix_channels(base, ".wav", pf)
+        assert set(files) == want, (name, files)
+        assert all(os.path.exists(os.path.join(tmp, f)) for f in files.values()), files
+        assert sf.info(os.path.join(tmp, files["c1_cont"])).frames == 10 * SAMPLES_PER_FRAME, "cut at the wrong frame"
+    print("ok  config path and channel files")
     print("PASS")
 
 
