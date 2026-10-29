@@ -147,6 +147,8 @@ per word before drawing conclusions.
 
 ## Prefix experiment (in progress, branch `prefix`)
 
+Run history, decisions and the current plan: [`prefix_log.md`](prefix_log.md).
+
 **Question.** Once the model has *heard the correct pronunciation* of a rare word in its own channel, does it
 reproduce the word correctly later in the dialogue? The first seconds of the dialogue are fixed: a TTS turn by Tom
 (the explainer, who starts) that contains the word, fed to the model teacher-forced via `generate(...,
