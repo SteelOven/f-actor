@@ -18,7 +18,12 @@ Decisions: speakers Tom + Gweneth (Brian's reference gives lead-ins); demo words
 text "Okay, {word}."; gap 0.5 s (Behavior-SD median); tail 0.3 s; gain +5.6 dB Tom, Gweneth to be measured.
 
 - [ ] 1. cluster: oov-shared `p5_demo` (Tom requests + Gweneth replies, ~12 frequent words), ASR gate, align, Gweneth loudness
-- [ ] 2. `build_multiturn_prefix` + `config_prefix` (`turns`) + `check_prefix` multi-turn mode + generator flags + grading of a non-silent channel 2
+- [ ] 2. multi-turn prefix in code:
+  - [x] `training/prefix.py` `build_multiturn_prefix` (stub-codec selftest `scripts/analysis/prefix_selftest.py`; golden check still PASS)
+  - [ ] `config_prefix` (`turns`) and `split_prefix_audio` (channel 2 now has speech in the prefix)
+  - [ ] `check_prefix` multi-turn mode
+  - [ ] generator flags (`--prefix-demos` ...)
+  - [ ] grading of a non-silent channel 2 / `prefix_label` on the last request only
 - [ ] 3. golden check still PASS; `check_prefix` on a few multi-turn prefixes, listen
 - [ ] 4. local pilot: 4 frequent targets x {0,1,3} demos x 2 seeds, 150 frames, tail 0.3; Brian-channel ASR + `onset_s2`
 - [ ] 5. gate: repetition clearly above the 0-demo rate -> OOV paired run on the cluster; else 5 demos / other reply wording once, else fine-tune
