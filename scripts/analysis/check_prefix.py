@@ -94,6 +94,7 @@ def main():
     ap.add_argument("--words", nargs="*", help="default: every word aligned for this voice")
     ap.add_argument("--out", default="outputs/prefix_check")
     ap.add_argument("--gain-db", type=float, default=COSYVOICE_GAIN_DB)
+    ap.add_argument("--tail-s", type=float, default=None, help="see training/prefix.py build_prefix")
     ap.add_argument("--model-dir", default="hf_models/f_actor", help="for the tokenizer")
     args = ap.parse_args()
 
@@ -118,7 +119,7 @@ def main():
         os.makedirs(out, exist_ok=True)
         try:
             prefix = build_prefix(os.path.join(args.run_dir, row["wav"]), row["words"], codec, tokenizer,
-                                  gain_db=args.gain_db)
+                                  gain_db=args.gain_db, tail_s=args.tail_s)
             passed = check(prefix, row, tokenizer)
         except (AssertionError, ValueError) as e:
             print(f"[FAIL] {name}: {e}")
