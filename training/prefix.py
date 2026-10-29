@@ -35,6 +35,7 @@ CODEC_CODEBOOK_SIZE = 4032        # = config.audio_vocab_size in inference_examp
 AUDIO_DELAY_ID = CODEC_CODEBOOK_SIZE        # 4032
 AUDIO_EOS_ID = CODEC_CODEBOOK_SIZE + 1      # 4033
 PEAK_CEILING_DBFS = -0.5
+TAIL_FLOOR_DBFS = -50.0           # what counts as trailing silence (before gain)
 COSYVOICE_GAIN_DB = 5.6           # oov-shared checks/LOG.md, loudness entry of 2026-10-16
 
 
@@ -85,10 +86,30 @@ def synthetic_example(words, n_frames):
     }]}
 
 
+def set_tail(audio, applied_gain_db, words, tail_s, floor_dbfs=TAIL_FLOOR_DBFS):
+    """Cut audio after its last active 20 ms frame (RMS above floor_dbfs before gain, never before the last word's
+    end) and append tail_s of digital silence."""
+    n = int(CODEC_SR * 0.02)
+    m = len(audio) // n
+    rms_db = 20 * np.log10(np.sqrt((audio[: m * n].reshape(m, n) ** 2).mean(axis=1)) + 1e-10)
+    active = np.nonzero(rms_db > floor_dbfs + applied_gain_db)[0]
+    end = (int(active[-1]) + 1) * n if len(active) else len(audio)
+    end = min(len(audio), max(end, int(round((words[-1]["start"] + words[-1]["dur"]) * CODEC_SR))))
+    return np.concatenate([audio[:end], np.zeros(int(round(tail_s * CODEC_SR)), dtype=np.float32)])
+
+
 def build_prefix(wav_path, words, codec, tokenizer, *, gain_db=0.0, audio_delay_id=AUDIO_DELAY_ID,
-                 add_bc_token=True, add_interrupt_token=True, max_length=4096):
-    """wav + [{"word", "start", "dur"}] (seconds) -> Prefix. Raises ValueError if the text does not fit the frames."""
+                 add_bc_token=True, add_interrupt_token=True, max_length=4096, tail_s=None):
+    """wav + [{"word", "start", "dur"}] (seconds) -> Prefix. Raises ValueError if the text does not fit the frames.
+
+    tail_s: if set, the clip's trailing silence is trimmed and replaced by exactly tail_s of digital silence, so
+    the turn neither ends on a hard cut nor carries the TTS's own, varying tail (0.04-0.8 s over the P4 clips).
+    A cut right after the last word looks like the end of a training dialogue and the model emits audio EOS at the
+    first generated frame (water: P(EOS) 0.98 at 0 s, 0.47 at +0.1 s, 0.00 from +0.2 s). None keeps the clip as is.
+    The extra frames carry [SILENCE_PAD] in the text streams; word timings are unchanged."""
     audio, applied_gain = load_audio(wav_path, gain_db)
+    if tail_s is not None:
+        audio = set_tail(audio, applied_gain, words, tail_s)
     speaker1 = encode(codec, audio)
     speaker2 = encode(codec, np.zeros_like(audio))
     if speaker1.shape != speaker2.shape:
@@ -115,4 +136,4 @@ def build_prefix(wav_path, words, codec, tokenizer, *, gain_db=0.0, audio_delay_
     return Prefix(dsu=dsu, text=text, n_frames=dsu.shape[-1], seconds=n_codes * SAMPLES_PER_FRAME / CODEC_SR,
                   overflow_words=int(overflow), gain_db=round(float(applied_gain), 2),
                   info={"wav": str(wav_path), "n_codes": n_codes, "requested_gain_db": gain_db,
-                        "audio_delay_id": audio_delay_id})
+                        "audio_delay_id": audio_delay_id, "tail_s": tail_s})

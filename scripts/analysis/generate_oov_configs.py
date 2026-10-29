@@ -89,6 +89,7 @@ def make_prefix(row, args):
         "words": [{"word": w["word"], "start": w["start"], "dur": w["dur"]} for w in row["words"]],
         "target_idx": row["target_idx"],
         "gain_db": args.prefix_gain_db,
+        **({"tail_s": args.prefix_tail_s} if args.prefix_tail_s is not None else {}),
         "source": {"run": os.path.basename(os.path.normpath(args.prefix_run_dir)), "voice": row["voice"],
                    "aligner": row["aligner"]},
     }
@@ -169,6 +170,9 @@ def main():
                              "(that run's clip of the word); quote '$WS/...' to keep it unexpanded in the configs")
     parser.add_argument("--prefix-voice", default="tom", dest="prefix_voice")
     parser.add_argument("--prefix-gain-db", type=float, default=DEFAULT_PREFIX_GAIN_DB, dest="prefix_gain_db")
+    parser.add_argument("--prefix-tail-s", type=float, default=None, dest="prefix_tail_s",
+                        help="trim the clip's trailing silence and end it with exactly this much digital silence "
+                             "(training/prefix.py set_tail); default: the clip as it is")
     args = parser.parse_args()
     # the explainer must be told the word; the listener may not be (e.g. the prefix "listen" variant, where
     # speaker 2 only hears the word in speaker 1's prefix: docs/oov_experiment.md "Prefix experiment")

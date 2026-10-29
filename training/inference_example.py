@@ -42,7 +42,7 @@ def load_model():
     model = model_cls.from_pretrained(
         model_id,
         config=config,
-        dtype=dtype,
+        torch_dtype=dtype,
     ).to(device)
 
     # set some useful paremters needed for forward passes
@@ -125,7 +125,7 @@ def config_prefix(config, model, nanocodec_model, tokenizer):
     if not os.path.exists(wav):
         raise FileNotFoundError(f"prefix wav not found: {wav} (from {p['wav']!r})")
     return build_prefix(wav, p["words"], nanocodec_model, tokenizer, gain_db=p.get("gain_db", 0.0),
-                        audio_delay_id=model.audio_delay_id)
+                        audio_delay_id=model.audio_delay_id, tail_s=p.get("tail_s"))
 
 
 def split_prefix_audio(channel_file, prefix, write_prefix=True):
