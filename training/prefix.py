@@ -98,6 +98,55 @@ def set_tail(audio, applied_gain_db, words, tail_s, floor_dbfs=TAIL_FLOOR_DBFS):
     return np.concatenate([audio[:end], np.zeros(int(round(tail_s * CODEC_SR)), dtype=np.float32)])
 
 
+def tidy_clip(audio, words, *, lead_keep_s=None, max_gap_s=None, fade_s=0.0, sr=CODEC_SR, xfade_s=0.008):
+    """Clean up one TTS clip and keep its word timings consistent. Returns (audio, words) with the shifted word times.
+
+    lead_keep_s: cut everything before the first word except this much (CosyVoice replies start with 0.7-1.8 s of hiss-like sound
+        before "okay"; the alignment puts the first word after it).
+    max_gap_s: shorten every gap between consecutive words to this length by removing the middle of the gap (the comma in
+        "Okay, {word}." gives pauses of 0.1-0.8 s, median 0.53 s; Behavior-SD's gap between words has median 0.0 s, p90 0.21 s).
+        Each cut gets xfade_s of fade on both sides, so there is no click.
+    fade_s: raised-cosine fade-out over the last fade_s of the clip (a few TTS clips stop at full level).
+    """
+    words = [dict(w) for w in words]
+    if lead_keep_s is not None:
+        cut = int(round(max(0.0, words[0]["start"] - lead_keep_s) * sr))
+        audio = audio[cut:]
+        for w in words:
+            w["start"] -= cut / sr
+    if max_gap_s is not None:
+        cuts = []                                    # (index of the first word after the cut, first removed sample, first kept sample)
+        for i in range(len(words) - 1):
+            end_i = words[i]["start"] + words[i]["dur"]
+            if words[i + 1]["start"] - end_i > max_gap_s:
+                a = int(round((end_i + max_gap_s / 2) * sr))
+                b = int(round((words[i + 1]["start"] - max_gap_s / 2) * sr))
+                if b > a:
+                    cuts.append((i + 1, a, b))
+        if cuts:
+            pieces, pos = [], 0
+            for _, a, b in cuts:
+                pieces.append(audio[pos:a].copy())
+                pos = b
+            pieces.append(audio[pos:].copy())
+            x = max(1, int(xfade_s * sr))
+            ramp = (0.5 - 0.5 * np.cos(np.linspace(0, np.pi, x))).astype(np.float32)
+            for k, piece in enumerate(pieces):
+                if k > 0:
+                    piece[:x] *= ramp
+                if k < len(pieces) - 1:
+                    piece[-x:] *= ramp[::-1]
+            audio = np.concatenate(pieces)
+            for idx, a, b in cuts:
+                for w in words[idx:]:
+                    w["start"] -= (b - a) / sr
+    audio = np.array(audio, dtype=np.float32)
+    if fade_s > 0:
+        n = min(len(audio), int(fade_s * sr))
+        audio[-n:] *= (0.5 + 0.5 * np.cos(np.linspace(0, np.pi, n))).astype(np.float32)
+    return audio, words
+
+
 def build_prefix(wav_path, words, codec, tokenizer, *, gain_db=0.0, audio_delay_id=AUDIO_DELAY_ID,
                  add_bc_token=True, add_interrupt_token=True, max_length=4096, tail_s=None):
     """wav + [{"word", "start", "dur"}] (seconds) -> Prefix. Raises ValueError if the text does not fit the frames.
@@ -180,6 +229,9 @@ def build_multiturn_prefix(turns, codec, tokenizer, *, gain_db=0.0, gap_s=0.5, t
     for k, t in enumerate(turns):
         spk = {0: 0, 1: 1, "speaker1": 0, "speaker2": 1}[t["speaker"]]
         audio, applied = load_audio(t["wav"], t.get("gain_db", gain_db))
+        if t.get("tidy"):                       # optional per turn: tidy_clip(**t["tidy"]), e.g. {"lead_keep_s": 0.1, "max_gap_s": 0.2}
+            audio, tidy_words = tidy_clip(audio, t["words"], **t["tidy"])
+            t = {**t, "words": tidy_words}
         audio = set_tail(audio, applied, t["words"], tail_s if k == len(turns) - 1 else 0.0)
         offset = 0.0 if k == 0 else cursor + gap_s - t["words"][0]["start"]
         if offset < 0:

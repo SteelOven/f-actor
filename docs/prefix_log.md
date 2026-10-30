@@ -131,3 +131,12 @@ behaviour is learned: one row, 3 steps. At ~50 s per row-step, 1000 row-steps ar
   `run_eval.sh <tag> [model dir]`, `summarize_eval.py`.
 - Known weakness carried into training: Gweneth's TTS replies still have the pause after "okay" and the pre-sound (see the p5 clip analysis);
   the model will imitate them.
+
+## 2026-10-31: fixing the Gweneth replies without the cluster
+Cluster access lost, so TTS cannot be rerun. Clip-level fix instead: `training/prefix.py tidy_clip` (optional `"tidy"` per turn in `build_multiturn_prefix`;
+clips without it are unchanged, golden PASS): cut the sound before the first word to 0.1 s, shorten word gaps to <= 0.2 s (cut the middle of the gap,
+8 ms fades at each cut), 40 ms fade-out. `finetune_repeat/clip_report.py` (12 p5 replies, medians before -> after): lead 0.85 -> 0.10 s, largest word gap
+0.53 -> 0.20 s, level of the last sound relative to speech -32.7 -> -34.1 dB (`coffee` 2.6 -> -7.4, still too loud: exclude it). `make_dataset.py` tidies the replies
+by default (`--no-tidy-replies` to turn it off). Listening set `oov-data/scratch_eos/listen_3` (A raw, B lead cut only, C tidy). Not checked: that the cut at
+first word - 0.1 s never clips the onset of "okay" (the aligner's start can be imprecise) - listen, or ASR the tidied clips when Parakeet is available.
+TTS variants for when the cluster is back: oov-shared `p5_demo_reply_b/c/d` (no comma / bare word / seed 1).

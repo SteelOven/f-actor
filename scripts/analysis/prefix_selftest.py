@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.join(_REPO, "training"))
 import numpy as np  # noqa: E402
 import soundfile as sf  # noqa: E402
 import torch  # noqa: E402
-from prefix import CODEC_SR, SAMPLES_PER_FRAME, N_DELAY_AUDIO, build_multiturn_prefix, build_prefix  # noqa: E402
+from prefix import CODEC_SR, SAMPLES_PER_FRAME, N_DELAY_AUDIO, build_multiturn_prefix, build_prefix, tidy_clip  # noqa: E402
 from special_tokens import SILENCE_PAD, UTTERANCE_PAD, WORD_PAD  # noqa: E402
 from transformers import AutoTokenizer  # noqa: E402
 
@@ -109,6 +109,29 @@ def main():
         print("ok  rejected:", e)
     else:
         raise AssertionError("negative offset accepted")
+    # 3b. tidy_clip: lead cut, long gap shortened, later words shifted, fade-out
+    sr = CODEC_SR
+    tone = lambda d: (0.3 * np.sin(2 * np.pi * 220 * np.arange(int(d * sr)) / sr)).astype(np.float32)
+    hiss = (0.01 * np.random.RandomState(0).randn(int(0.8 * sr))).astype(np.float32)
+    clip = np.concatenate([hiss, tone(0.3), np.zeros(int(0.6 * sr), np.float32), tone(0.4)])
+    ws = [{"word": "okay", "start": 0.8, "dur": 0.3}, {"word": "dog", "start": 1.7, "dur": 0.4}]      # gap 0.6 s
+    out, tw = tidy_clip(clip, ws, lead_keep_s=0.1, max_gap_s=0.2, fade_s=0.05)
+    assert abs(tw[0]["start"] - 0.1) < 2 / sr, tw
+    assert abs((tw[1]["start"] - (tw[0]["start"] + tw[0]["dur"])) - 0.2) < 2 / sr, tw
+    assert abs(len(out) / sr - (0.1 + 0.3 + 0.2 + 0.4)) < 3 / sr, len(out) / sr
+    seg = out[int(tw[1]["start"] * sr): int((tw[1]["start"] + 0.4) * sr)]
+    assert np.abs(seg[int(0.05 * sr): int(0.3 * sr)]).max() > 0.25, "second word damaged"
+    assert abs(out[-1]) < 1e-3, "no fade-out"
+    out2, tw2 = tidy_clip(clip, ws)                                                         # no options: unchanged
+    assert np.array_equal(out2, clip) and tw2 == ws
+    print("ok  tidy_clip: lead", round(tw[0]["start"], 3), "| gap", round(tw[1]["start"] - tw[0]["start"] - tw[0]["dur"], 3), "| length", round(len(out) / sr, 3))
+    wav_c = os.path.join(tmp, "c.wav"); sf.write(wav_c, clip, sr)
+    pf = build_multiturn_prefix([{"speaker": 1, "wav": wav_c, "words": ws, "tidy": {"lead_keep_s": 0.1, "max_gap_s": 0.2}}], codec, tokenizer, tail_s=0.3)
+    t0 = pf.info["turns"][0]
+    assert abs(t0["start_s"] - 0.1) < 0.01 and abs(t0["end_s"] - 1.0) < 0.01, t0
+    assert stream_words(tokenizer, pf.text[0, 1].tolist()) == ["okay", "dog"]
+    print("ok  tidy through the builder:", t0["start_s"], "-", t0["end_s"])
+
     # 4. config path: single-turn and turns configs build what the builders build; channel files per kind
     from types import SimpleNamespace
 
