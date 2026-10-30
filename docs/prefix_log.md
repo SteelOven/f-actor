@@ -104,3 +104,11 @@ Quick version, plain instruction sentences: Tom "You ask Gweneth to repeat words
 - Tokenizer: `training/model.py load_model` adds 61 special tokens on top of the released tokenizer (128260 -> 128321; the release lacks
   `[INTER]` and the counting tokens). Ids used by our rows (`[SILENCE_PAD]` 128256 ... `[BC]` 128259) do not change; the embedding matrix grows.
 - Cluster checkout for this: `git checkout finetune-repeat` in `~/f-actor` (the container mounts `~/f-actor` only), switch back to `prefix` afterwards.
+
+## 2026-10-31: fine-tune prototype runs on the laptop (no cluster access)
+Laptop: i7-1165G7 (4 cores), 15 GB RAM, no NVIDIA GPU, CPU-only torch 2.8. Full AdamW on the 1.37 B model needs ~22 GB: does not fit.
+`check_row.py --train top:1` trains only the audio heads/embeddings, the speaker projection, the final norm and the last transformer layer
+(193 M of 1369 M parameters). One synthetic row (412 frames), lr 5e-5, fp32, memory capped with `systemd-run --user --scope -p MemoryMax=9G`:
+loss 4.89 -> 4.49 -> 4.09 over 3 steps (text 1.01 -> 0.58, audio 3.87 -> 3.52), 44-57 s per step, peak RSS 10.3 GB. So the data
+path, collator, model, optimizer and loss work on real model code, and the loss falls on a fixed row. This does not tell whether the
+behaviour is learned: one row, 3 steps. At ~50 s per row-step, 1000 row-steps are ~14 h.

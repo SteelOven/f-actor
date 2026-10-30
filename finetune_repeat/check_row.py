@@ -21,6 +21,8 @@ ap.add_argument("--data", required=True, help="dir from make_dataset.py (train/,
 ap.add_argument("--model_id", default=f"{_ROOT}/hf_models/f_actor")
 ap.add_argument("--steps", type=int, default=0)
 ap.add_argument("--lr", type=float, default=5e-5)
+ap.add_argument("--train", default="all", help="'all' or 'top:N': freeze everything except the audio heads/embeddings, the speaker "
+                "projection, the final norm and the last N transformer layers (the laptop has no GPU and 15 GB: full AdamW does not fit)")
 ap.add_argument("--n-synthetic", type=int, default=2); ap.add_argument("--n-real", type=int, default=2)
 args = ap.parse_args()
 logging.basicConfig(level=logging.INFO, format="%(message)s"); logger = logging.getLogger("check_row")
@@ -31,8 +33,16 @@ margs = SimpleNamespace(model_id=args.model_id, num_dsus=4, text_stream=True, mu
                         use_speaker_embedding=True, calc_loss_on_c1_only=False)
 model, tok = load_model(margs, grad_acc_steps=1, logger=logger)
 model.train()
+if args.train != "all":
+    import re
+    n_top = int(args.train.split(":")[1]); n_layers = model.config.num_hidden_layers
+    for name, p in model.named_parameters():
+        m = re.match(r"model\.layers\.(\d+)\.", name)
+        p.requires_grad = bool(
+            name.startswith(("audio_embeds", "dsu_head", "speaker_embed_proj", "model.norm")) or (m and int(m.group(1)) >= n_layers - n_top))
 dev = next(model.parameters()).device
-print("device", dev, "| trainable params", sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e6, "M")
+print("device", dev, "| trainable params %.0f M of %.0f M" % (sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e6,
+      sum(p.numel() for p in model.parameters()) / 1e6))
 
 syn = load_from_disk(f"{args.data}/train"); real = load_from_disk(f"{args.data}/real_sample")
 feats = [syn[i] for i in range(args.n_synthetic)] + [real[i] for i in range(args.n_real)]
@@ -57,7 +67,8 @@ if args.steps == 0:
         l, a, tx, s = step(False)
     print(f"forward only: loss {l:.4f} (audio {a:.4f}, text {tx:.4f}) in {s:.0f}s | finite: {all(map(torch.isfinite, [torch.tensor(l)]))}")
 else:
-    opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0.0)
+    opt = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=args.lr, weight_decay=0.0)
     for i in range(args.steps):
         l, a, tx, s = step(True)
-        print(f"step {i:2d}: loss {l:.4f} (audio {a:.4f}, text {tx:.4f})  {s:.1f}s", flush=True)
+        import resource
+        print(f"step {i:2d}: loss {l:.4f} (audio {a:.4f}, text {tx:.4f})  {s:.1f}s  peak RSS {resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/1e6:.1f} GB", flush=True)
