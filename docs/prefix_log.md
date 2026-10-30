@@ -140,3 +140,10 @@ clips without it are unchanged, golden PASS): cut the sound before the first wor
 by default (`--no-tidy-replies` to turn it off). Listening set `oov-data/scratch_eos/listen_3` (A raw, B lead cut only, C tidy). Not checked: that the cut at
 first word - 0.1 s never clips the onset of "okay" (the aligner's start can be imprecise) - listen, or ASR the tidied clips when Parakeet is available.
 TTS variants for when the cluster is back: oov-shared `p5_demo_reply_b/c/d` (no comma / bare word / seed 1).
+
+## 2026-10-31: micro-run 1 trained (LoRA r16, 5 words, tidied replies)
+`oov-data/finetune/micro_v2` (20 train + 4 validation dialogues, words doctor garden morning movie music), `local_train.py --mode lora:16 --epochs 6 --accum 4 --lr 2e-4`,
+heads frozen, 60 optimizer steps, 85 min, peak RSS 10.6 GB, merged model `oov-data/finetune/micro_lora/final`.
+Losses (train.log printed audio/text 4x too large: the model divides only the total by grad_acc_steps; fixed in local_train.py afterwards, corrected here):
+synthetic validation total 4.18 -> 2.45 (text 0.78 -> 0.02, audio 3.41 -> 2.43); real rows 4.43 -> 4.50 (text 0.69 -> 0.73, audio 3.74 -> 3.77).
+The validation dialogues use the same 5 words as training, so this shows the pattern is learned, not that it generalises (held-out / OOV evals follow).

@@ -85,7 +85,8 @@ def batch_of(rows):
 
 def fwd(rows):
     out = model(**batch_of(rows))
-    return out["loss"] * args.accum, float(out["c1_dsu_loss"]) * args.accum, float(out["c1_text_loss"]) * args.accum   # model divides by grad_acc_steps
+    # the model divides only the total loss by grad_acc_steps (= --accum); the audio/text parts are returned undivided
+    return out["loss"] * args.accum, float(out["c1_dsu_loss"]), float(out["c1_text_loss"])
 
 def evaluate(tag):
     with torch.no_grad():
