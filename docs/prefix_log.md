@@ -73,3 +73,19 @@ Question: why does generation end at the first frame after some prefixes?
 
 Turn statistics from Behavior-SD validation (13.6k turn boundaries): gap between turns median 0.49 s (IQR 0.27-0.67), 12% overlap;
 turn median 9 words / 3.1 s.
+
+## 2026-10-31: fine-tune prototype, stage 1 (branch `finetune-repeat`, worktree `../f-actor-ft`)
+Pilot result that led here: 0 / 24 dialogues with the partner saying the target (0, 1, 3 demos; 4 words x 2 repeats; `oov-data/scratch_eos/pilot`).
+`finetune_repeat/compare_rows.py` builds real training rows with the repo's own functions (flags of `train_nanocodec_special_tokens.sh`)
+and one synthetic row from the p5 clips. Findings:
+- Row = `input_ids` (prompt padded to 2048), `attention_mask`, `dsu_ids` [8, T] int64 with 2 delay frames in front, `text_stream_ids` [1, T], `spk_emb` [192].
+  The synthetic row has exactly this shape. Real rows are 527-983 frames (42-79 s), synthetic ~215 (17 s).
+- **One text stream per row** (released config: `text_stream: true`, `multi_text_stream: false`, so `num_text_streams = 1`): the model never sees the
+  partner's text, only the partner's audio. (Earlier I said both text streams are embedded: wrong for this checkpoint.) Consequences: "hearing" in the
+  prefix experiments is audio-only, and the text-side stop in `generate()` (`num_text_streams > 1`) never fires; only audio EOS can end a run.
+- Perspective: `prepare_dsu` picks the "system" speaker at random (50/50) per row; heads 0-3 = system, 4-7 = user; prompt, narrative (`new_narrative_s<k>`),
+  speaker embedding and the text stream are the system speaker's. Loss: audio on all 8 heads (both speakers), text on the system's stream only
+  (`calc_loss_on_c1_only: false`). A synthetic dialogue therefore wants rows from both perspectives (Gweneth = system carries the words in her text stream).
+- Prompt: training (`build_prompt`) writes the narrative as `- <narrative>`, inference (`prepare_prompt`, used by all runs so far) writes it without `- `.
+  Real narratives are second-person situation stories ("You felt helpful when ..."), backchannel/interruption counts come from the data (here 0/0).
+- Real text streams contain `[BC]`/`[INTER]` tokens; the synthetic ones have none.
