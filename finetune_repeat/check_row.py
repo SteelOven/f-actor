@@ -71,4 +71,5 @@ else:
     for i in range(args.steps):
         l, a, tx, s = step(True)
         import resource
-        print(f"step {i:2d}: loss {l:.4f} (audio {a:.4f}, text {tx:.4f})  {s:.1f}s  peak RSS {resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/1e6:.1f} GB", flush=True)
+        rss_unit = 1e9 if sys.platform == "darwin" else 1e6      # ru_maxrss: bytes on macOS, KiB on Linux
+        print(f"step {i:2d}: loss {l:.4f} (audio {a:.4f}, text {tx:.4f})  {s:.1f}s  peak RSS {resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/rss_unit:.1f} GB", flush=True)
