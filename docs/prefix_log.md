@@ -89,3 +89,18 @@ and one synthetic row from the p5 clips. Findings:
 - Prompt: training (`build_prompt`) writes the narrative as `- <narrative>`, inference (`prepare_prompt`, used by all runs so far) writes it without `- `.
   Real narratives are second-person situation stories ("You felt helpful when ..."), backchannel/interruption counts come from the data (here 0/0).
 - Real text streams contain `[BC]`/`[INTER]` tokens; the synthetic ones have none.
+
+## 2026-10-31: fine-tune prototype, stage 2 (plain instruction sentences)
+Quick version, plain instruction sentences: Tom "You ask Gweneth to repeat words after you, one word at a time.", Gweneth
+"Tom will say a word. Listen to it and say the same word back to Tom." (the same two at test time).
+- `finetune_repeat/rows.py` (dialogue -> two training rows, one per system perspective, prompt from the repo's `build_prompt`),
+  `make_dataset.py` (p5 clips -> `train/`, `validation/`, optional `real_sample/` streamed from the HF dataset), `train.py` (wrapper that
+  patches `finetune.load_data` to append the synthetic rows; `training/` is not edited), `check_row.py` (one-row test + overfit),
+  `sbatch_overfit.sh`.
+- Smoke data `oov-data/finetune/p5_small`: 6 + 2 dialogues (3-6 exchanges, 17-33 s) from the 9 p5 words without `--gate` (includes `weekend`,
+  whose request clip failed the gate: use `--gate` for real data), 12 + 4 rows, 2 real rows.
+- Forward pass through the repo's collator and model (laptop, CPU, released checkpoint, `model.train()`): finite. Loss before any training:
+  synthetic row 4.89 (audio 3.87, text 1.01), real row 4.07 (audio 3.52, text 0.56). The synthetic text loss is about twice the real one.
+- Tokenizer: `training/model.py load_model` adds 61 special tokens on top of the released tokenizer (128260 -> 128321; the release lacks
+  `[INTER]` and the counting tokens). Ids used by our rows (`[SILENCE_PAD]` 128256 ... `[BC]` 128259) do not change; the embedding matrix grows.
+- Cluster checkout for this: `git checkout finetune-repeat` in `~/f-actor` (the container mounts `~/f-actor` only), switch back to `prefix` afterwards.
