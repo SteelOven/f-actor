@@ -23,6 +23,14 @@ Usage:
     python scripts/analysis/generate_oov_configs.py --words quokka water \
         --prefix-run-dir '$WS/checks/p3_prefix_tom' --outdir confs/oov_prefix --audio-dir outputs/oov_prefix
 
+    # multi-turn prefix: N demonstration exchanges (Tom asks for a frequent word, speaker 2 says it) before the target
+    # request; training/prefix.py build_multiturn_prefix, plan in docs/prefix_log.md. The demo words come from the
+    # pool of words that have both a request clip and a reply clip, never the target, seeded per (word, repeat).
+    python scripts/analysis/generate_oov_configs.py --words music kitchen --speakers Tom,Gweneth \\
+        --prefix-run-dir ../oov-data/checks/p5_demo_request --prefix-tail-s 0.3 --prefix-demos 2 \\
+        --demo-request-run-dir ../oov-data/checks/p5_demo_request --demo-reply-run-dir ../oov-data/checks/p5_demo_reply \\
+        --demo-exclude coffee dinner --outdir confs/pilot_d2 --audio-dir outputs/pilot_d2
+
 Then run the generated configs:
     for f in confs/oov/*.json; do
         python training/inference_example.py --config "$f"
@@ -33,6 +41,7 @@ import argparse
 import csv
 import json
 import os
+import random
 import sys
 
 # oov_vocab (the shared band definition) and the Behavior-SD frequency table
@@ -65,6 +74,7 @@ NARRATIVE_LISTENER = (
 # CosyVoice clips vs Behavior-SD's level (oov-shared checks/LOG.md, 2026-10-16; = training/prefix.py's
 # COSYVOICE_GAIN_DB, not imported so this script stays free of torch)
 DEFAULT_PREFIX_GAIN_DB = 5.6
+DEFAULT_MULTITURN_TAIL_S = 0.3   # the tail that stops audio EOS at the first frame (docs/prefix_log.md)
 
 
 def load_prefixes(run_dir, voice):
@@ -77,14 +87,17 @@ def load_prefixes(run_dir, voice):
     return {r["word"]: r for r in rows if r["voice"] == voice}
 
 
+def clip_path(run_dir, row):
+    """Path of a clip of a round-trip run: "$WS/..." is kept as given (expanded at generation, so the config works
+    in and outside the container); anything else is made absolute, so generation does not depend on the cwd."""
+    return os.path.join(run_dir if "$" in run_dir else os.path.abspath(run_dir), row["wav"])
+
+
 def make_prefix(row, args):
     """The config's "prefix" block (read by training/inference_example.py)."""
     return {
         "speaker": "speaker1",
-        # "$WS/..." is kept as given (expanded at generation, so the config works in and outside the container);
-        # anything else is made absolute, so generation does not depend on the current directory
-        "wav": os.path.join(args.prefix_run_dir if "$" in args.prefix_run_dir else os.path.abspath(args.prefix_run_dir),
-                            row["wav"]),
+        "wav": clip_path(args.prefix_run_dir, row),
         "text": row["text"],
         "words": [{"word": w["word"], "start": w["start"], "dur": w["dur"]} for w in row["words"]],
         "target_idx": row["target_idx"],
@@ -95,7 +108,43 @@ def make_prefix(row, args):
     }
 
 
-def make_config(word, speaker1, speaker2, rep, args, speech_count, narrative_count, band, prefix_row=None):
+def make_turn(row, run_dir, speaker, gain_db, role):
+    return {
+        "speaker": speaker, "role": role, "word": row["word"],
+        "wav": clip_path(run_dir, row), "text": row["text"],
+        "words": [{"word": w["word"], "start": w["start"], "dur": w["dur"]} for w in row["words"]],
+        "gain_db": gain_db,
+    }
+
+
+def make_multiturn_prefix(row, demos, args):
+    """Prefix block with turns: each demo = speaker1's request + speaker2's reply, then the target's request."""
+    turns = []
+    for req, rep in demos:
+        turns.append(make_turn(req, args.demo_request_run_dir, "speaker1", args.prefix_gain_db, "demo_request"))
+        turns.append(make_turn(rep, args.demo_reply_run_dir, "speaker2", args.demo_reply_gain_db, "demo_reply"))
+    last = make_turn(row, args.prefix_run_dir, "speaker1", args.prefix_gain_db, "request")
+    last["target_idx"] = row["target_idx"]
+    turns.append(last)
+    return {
+        "turns": turns, "gap_s": args.prefix_gap_s,
+        "tail_s": args.prefix_tail_s if args.prefix_tail_s is not None else DEFAULT_MULTITURN_TAIL_S,
+        "source": {"run": os.path.basename(os.path.normpath(args.prefix_run_dir)), "voice": row["voice"],
+                   "aligner": row["aligner"], "demo_requests": os.path.basename(os.path.normpath(args.demo_request_run_dir)),
+                   "demo_replies": os.path.basename(os.path.normpath(args.demo_reply_run_dir))},
+    }
+
+
+def pick_demos(word, rep, pool, n, seed):
+    """n distinct demo words from pool (sorted, without the target), deterministic per (seed, word, rep)."""
+    candidates = sorted(w for w in pool if w != word)
+    if len(candidates) < n:
+        raise SystemExit(f"error: only {len(candidates)} demo words available for {word!r}, --prefix-demos is {n}")
+    return random.Random(f"{seed}|{word}|{rep}").sample(candidates, n)
+
+
+def make_config(word, speaker1, speaker2, rep, args, speech_count, narrative_count, band, prefix_row=None,
+                demos=None):
     config = {
         "meta": {
             "word": word,
@@ -126,7 +175,11 @@ def make_config(word, speaker1, speaker2, rep, args, speech_count, narrative_cou
         "top_p": args.top_p,
     }
     if prefix_row is not None:
-        config["prefix"] = make_prefix(prefix_row, args)
+        if demos:
+            config["prefix"] = make_multiturn_prefix(prefix_row, demos, args)
+            config["meta"]["demos"] = [req["word"] for req, _ in demos]
+        else:
+            config["prefix"] = make_prefix(prefix_row, args)
         config["meta"]["prefix"] = config["prefix"]["source"]["run"]
         config["output_file"] = f"{word}_r{rep}_pfx.wav"
     return config
@@ -173,6 +226,24 @@ def main():
     parser.add_argument("--prefix-tail-s", type=float, default=None, dest="prefix_tail_s",
                         help="trim the clip's trailing silence and end it with exactly this much digital silence "
                              "(training/prefix.py set_tail); default: the clip as it is")
+    parser.add_argument("--prefix-demos", type=int, default=0, dest="prefix_demos",
+                        help="number of demonstration exchanges (speaker1's request for a pool word, speaker 2 says "
+                             "it) before the target request; 0 = the single-turn prefix. Needs the --demo-* run dirs")
+    parser.add_argument("--demo-request-run-dir", dest="demo_request_run_dir",
+                        help="round-trip run (alignment.jsonl) with speaker1's requests for the demo words")
+    parser.add_argument("--demo-reply-run-dir", dest="demo_reply_run_dir",
+                        help="round-trip run (alignment.jsonl) with speaker 2's replies for the demo words")
+    parser.add_argument("--demo-reply-voice", default="gweneth", dest="demo_reply_voice",
+                        help="voice of the replies; must be --speakers' second name (the model's voice for speaker 2)")
+    parser.add_argument("--demo-pool-file", nargs="+", dest="demo_pool_file",
+                        help="word lists (csv with a word column, or one word per line), e.g. oov-shared's "
+                             "prefix_gate_p5_demo_request.csv and ..._reply.csv: only words in all of them")
+    parser.add_argument("--demo-exclude", nargs="+", default=[], dest="demo_exclude", help="words never used as demos")
+    parser.add_argument("--demo-seed", type=int, default=0, dest="demo_seed")
+    parser.add_argument("--demo-reply-gain-db", type=float, default=0.0, dest="demo_reply_gain_db",
+                        help="gain of the replies (Gweneth's CosyVoice clips are already at Behavior-SD's level)")
+    parser.add_argument("--prefix-gap-s", type=float, default=0.5, dest="prefix_gap_s",
+                        help="between a turn's last word and the next turn's first word (Behavior-SD median 0.49 s)")
     args = parser.parse_args()
     # the explainer must be told the word; the listener may not be (e.g. the prefix "listen" variant, where
     # speaker 2 only hears the word in speaker 1's prefix: docs/oov_experiment.md "Prefix experiment")
@@ -193,6 +264,20 @@ def main():
         if missing:
             parser.error(f"no {args.prefix_voice!r} clip aligned in {args.prefix_run_dir} for: {', '.join(missing)} "
                          "(gate the word list first: oov-shared checks/prefix_gate.py)")
+    demo_pool = None
+    if args.prefix_demos:
+        if not (prefixes and args.demo_request_run_dir and args.demo_reply_run_dir):
+            parser.error("--prefix-demos needs --prefix-run-dir, --demo-request-run-dir and --demo-reply-run-dir")
+        if speaker2.lower() != args.demo_reply_voice.lower():
+            parser.error(f"the replies are in the voice {args.demo_reply_voice!r}, so speaker 2 must be named "
+                         f"{args.demo_reply_voice.capitalize()!r} (--speakers), not {speaker2!r}")
+        requests = load_prefixes(args.demo_request_run_dir, args.prefix_voice)
+        replies = load_prefixes(args.demo_reply_run_dir, args.demo_reply_voice)
+        demo_pool = set(requests) & set(replies)
+        for path in args.demo_pool_file or []:
+            demo_pool &= set(load_words_file(path))
+        demo_pool -= {w.lower() for w in args.demo_exclude}
+        print(f"demo pool ({len(demo_pool)}): {', '.join(sorted(demo_pool))}\n")
     vocab = load_vocab(args.vocab)
     os.makedirs(args.outdir, exist_ok=True)
 
@@ -205,10 +290,14 @@ def main():
             speech_count, narrative_count = vocab.get(word, (0, 0))
             band = get_band(speech_count, narrative_count)
             for rep in range(1, args.repeats + 1):
+                demos = None
+                if demo_pool is not None:
+                    demos = [(requests[d], replies[d]) for d in pick_demos(word, rep, demo_pool, args.prefix_demos, args.demo_seed)]
                 config = make_config(
                     word, speaker1, speaker2, rep, args,
                     speech_count, narrative_count, band,
                     prefix_row=prefixes[word] if prefixes else None,
+                    demos=demos,
                 )
                 config_path = os.path.join(args.outdir, f"{word}_r{rep}.json")
                 with open(config_path, "w") as f:
@@ -217,7 +306,7 @@ def main():
                 manifest.write(
                     f"{word}\t{speech_count}\t{narrative_count}\t{band}"
                     f"\t{rep}\t{config_path}\t{audio_path}"
-                    f"\t{config['prefix']['wav'] if prefixes else ''}\n"
+                    f"\t{(config['prefix'].get('wav') or config['prefix']['turns'][-1]['wav']) if prefixes else ''}\n"
                 )
             print(f"{word:<25}{band:<16}speech={speech_count}")
 
