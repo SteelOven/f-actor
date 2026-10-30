@@ -16,7 +16,8 @@ import re
 
 def load_model():
     device = get_device()
-    model_id = snapshot_download(
+    # FACTOR_MODEL_DIR: a local checkpoint (e.g. finetune_repeat/local_train.py's <out>/final) instead of the released model
+    model_id = os.environ.get("FACTOR_MODEL_DIR") or snapshot_download(
         repo_id="maikezu/f-actor", local_dir=f"./hf_models/f_actor"
     )
     tokenizer = AutoTokenizer.from_pretrained(
@@ -58,12 +59,13 @@ def load_model():
 
 
 def prepare_prompt(
-    system_speaker, user_speaker, narrative, speaks_first, backchannels, interruptions
+    system_speaker, user_speaker, narrative, speaks_first, backchannels, interruptions, narrative_prefix=""
 ):
+    # narrative_prefix "- " is what training/dialogue_creation/get_prompt.py build_prompt writes (the released inference code omits it)
     prompt = f"""Generate a dialogue between you ({system_speaker}) and another speaker ({user_speaker}) based on the given narrative. Follow the specific behavior instructions for you.
 
 Narrative:
-{narrative}
+{narrative_prefix}{narrative}
 
 Your behaviors:
 - backchannels: {backchannels}
@@ -76,7 +78,8 @@ Ensure that the dialogue reflects the behaviours of you.\n"""
     return prompt
 
 
-def prepare_input(speaker1, speaker2):
+def prepare_input(speaker1, speaker2, training_format=False):
+    narrative_prefix = "- " if training_format else ""
     prompt_speaker1 = prepare_prompt(
         system_speaker=speaker1["name"],
         user_speaker=speaker2["name"],
@@ -84,6 +87,7 @@ def prepare_input(speaker1, speaker2):
         speaks_first=speaker1["starts"],
         backchannels=speaker1.get("backchannels", 2),
         interruptions=speaker1.get("interruptions", 2),
+        narrative_prefix=narrative_prefix,
     )
     prompt_speaker2 = prepare_prompt(
         system_speaker=speaker2["name"],
@@ -92,6 +96,7 @@ def prepare_input(speaker1, speaker2):
         speaks_first=speaker2["starts"],
         backchannels=speaker2.get("backchannels", 2),
         interruptions=speaker2.get("interruptions", 2),
+        narrative_prefix=narrative_prefix,
     )
 
     with open("training/example_speakers/speaker_embeddings.json", "r") as f:
@@ -192,7 +197,7 @@ def generate_dialogue(model, tokenizer, nanocodec_model, config):
 
     # prepare instructions
     print("Preparing instructions...")
-    example = prepare_input(speaker1, speaker2)
+    example = prepare_input(speaker1, speaker2, training_format=config.get("prompt_format") == "training")
     inputs = tokenizer(
         example["prompts"],
         return_tensors="pt",

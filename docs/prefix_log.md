@@ -112,3 +112,22 @@ Laptop: i7-1165G7 (4 cores), 15 GB RAM, no NVIDIA GPU, CPU-only torch 2.8. Full 
 loss 4.89 -> 4.49 -> 4.09 over 3 steps (text 1.01 -> 0.58, audio 3.87 -> 3.52), 44-57 s per step, peak RSS 10.3 GB. So the data
 path, collator, model, optimizer and loss work on real model code, and the loss falls on a fixed row. This does not tell whether the
 behaviour is learned: one row, 3 steps. At ~50 s per row-step, 1000 row-steps are ~14 h.
+
+## 2026-10-31: micro-run prepared (LoRA, laptop)
+- `finetune_repeat/local_train.py`: LoRA (`--mode lora:R`, all layers, q/k/v/o/gate/up/down, peft without task type so the custom forward runs
+  as is) or `top:N`; audio heads/embeddings frozen by default (`--heads train` to train them); one row per forward, `--accum` rows per step;
+  evaluates synthetic-validation and real rows before/during/after; merges the adapters and saves `<out>/final` (+ tokenizer).
+  Smoke (p5_small, 2 steps): 11.3 M trainable of 1380 M, ~25-30 s per row-step, peak RSS 10.1 GB under a 11 GB cgroup cap.
+- Chain train -> merge -> save (5.4 GB) -> reload through `training/inference_example.py` (new `FACTOR_MODEL_DIR` env var) -> generate: works
+  (1 training step, 2-frame generation, no size mismatches although the vocabulary grew to 128321).
+- `inference_example.py`: `prompt_format: "training"` in a config writes the narrative as `- <narrative>` (training's `build_prompt`);
+  default unchanged (the single-turn configs of the tail sweep regenerate byte-identical, golden check PASS).
+  `generate_oov_configs.py`: `--prompt-format training`; `{word}` is no longer required in the explainer narrative when there is a prefix.
+- Data: `oov-data/finetune/micro` = 20 train + 4 validation dialogues (3-5 exchanges, 16-28 s) from 5 words (doctor, garden, morning,
+  movie, music; gate lists applied) + 4 real validation rows. Held out: water, kitchen, hello. Narratives: Tom "You ask Gweneth to repeat
+  words after you, one word at a time.", Gweneth "Tom will say a word. Listen to it and say the same word back to Tom."
+- Test: `make_eval_configs.sh <tag>` (groups train: doctor, music; heldout: water, kitchen, hello; oov: archband, adherer, appalachia,
+  anthropophagous; Tom's request only, training prompt format, backchannels/interruptions 0, 2 repeats, 150 frames),
+  `run_eval.sh <tag> [model dir]`, `summarize_eval.py`.
+- Known weakness carried into training: Gweneth's TTS replies still have the pause after "okay" and the pre-sound (see the p5 clip analysis);
+  the model will imitate them.

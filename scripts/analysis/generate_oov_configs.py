@@ -173,6 +173,7 @@ def make_config(word, speaker1, speaker2, rep, args, speech_count, narrative_cou
         "temperature": args.temperature,
         "top_k": args.top_k,
         "top_p": args.top_p,
+        **({"prompt_format": "training"} if args.prompt_format == "training" else {}),
     }
     if prefix_row is not None:
         if demos:
@@ -242,13 +243,15 @@ def main():
     parser.add_argument("--demo-seed", type=int, default=0, dest="demo_seed")
     parser.add_argument("--demo-reply-gain-db", type=float, default=0.0, dest="demo_reply_gain_db",
                         help="gain of the replies (Gweneth's CosyVoice clips are already at Behavior-SD's level)")
+    parser.add_argument("--prompt-format", choices=["inference", "training"], default="inference", dest="prompt_format",
+                        help="'training': the narrative is written as '- <narrative>' like training's build_prompt (for fine-tuned models)")
     parser.add_argument("--prefix-gap-s", type=float, default=0.5, dest="prefix_gap_s",
                         help="between a turn's last word and the next turn's first word (Behavior-SD median 0.49 s)")
     args = parser.parse_args()
     # the explainer must be told the word; the listener may not be (e.g. the prefix "listen" variant, where
     # speaker 2 only hears the word in speaker 1's prefix: docs/oov_experiment.md "Prefix experiment")
-    if "{word}" not in args.narrative_explainer:
-        parser.error("--narrative-explainer must contain {word}")
+    if "{word}" not in args.narrative_explainer and not args.prefix_run_dir:
+        parser.error("--narrative-explainer must contain {word} (unless there is a prefix: the word is then in the fixed first turn)")
 
     words = [w.lower() for w in args.words]
     if args.words_file:

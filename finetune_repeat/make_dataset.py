@@ -20,11 +20,13 @@ ap.add_argument("--requests", default=f"{_ROOT}/../oov-data/checks/p5_demo_reque
 ap.add_argument("--replies", default=f"{_ROOT}/../oov-data/checks/p5_demo_reply")
 ap.add_argument("--gate", nargs="*", default=[], help="word lists (csv with a word column); only words in all of them")
 ap.add_argument("--exclude", nargs="*", default=["coffee", "dinner", "window"])
+ap.add_argument("--only", nargs="*", default=[], help="restrict the pool to these words (the rest stay held out for testing)")
 ap.add_argument("--n-train", type=int, default=40); ap.add_argument("--n-val", type=int, default=8)
 ap.add_argument("--min-ex", type=int, default=3); ap.add_argument("--max-ex", type=int, default=6)
 ap.add_argument("--tom-gain", type=float, default=5.6); ap.add_argument("--gweneth-gain", type=float, default=0.0)
 ap.add_argument("--seed", type=int, default=0)
 ap.add_argument("--real-sample", type=int, default=0, help="stream this many real validation rows (needs network)")
+ap.add_argument("--real-only", action="store_true", help="only (re)build real_sample, keep train/ and validation/")
 args = ap.parse_args()
 
 def clips(run, voice):
@@ -35,6 +37,11 @@ pool = set(req) & set(rep) - set(args.exclude)
 for path in args.gate:
     import csv
     pool &= {r["word"] for r in csv.DictReader(open(path))}
+if args.only:
+    missing = set(args.only) - pool
+    if missing:
+        sys.exit(f"error: not in the pool (no clip or gated out): {sorted(missing)}")
+    pool &= set(args.only)
 pool = sorted(pool); print(f"word pool ({len(pool)}): {', '.join(pool)}")
 
 tok = AutoTokenizer.from_pretrained(f"{_ROOT}/hf_models/f_actor"); tok.pad_token = tok.eos_token
@@ -56,15 +63,20 @@ def build(n, offset):
     return Dataset.from_list(out)
 
 os.makedirs(args.out, exist_ok=True)
-build(args.n_train, 0).save_to_disk(f"{args.out}/train")
-build(args.n_val, 500000).save_to_disk(f"{args.out}/validation")
+if not args.real_only:
+    build(args.n_train, 0).save_to_disk(f"{args.out}/train")
+    build(args.n_val, 500000).save_to_disk(f"{args.out}/validation")
 if args.real_sample:
     from datasets import load_dataset
     from compare_rows import real_row
     ds = load_dataset("maikezu/f-actor-behavior-sd-nanocodec", split="validation", streaming=True)
     rs = []
-    for _, ex in zip(range(args.real_sample), ds):
+    for ex in ds:
+        if len(rs) >= args.real_sample:
+            break
         r = real_row(ex, tok)
+        if r["skip"]:            # the repo's own text-fit check rejects it (data.py would filter it out too)
+            continue
         rs.append({"input_ids": r["input_ids"], "attention_mask": r["attention_mask"], "labels": [-100],
                    "dsu_ids": r["dsu_ids"].tolist(), "text_stream_ids": r["text_stream_ids"].tolist(), "spk_emb": r["spk_emb"].tolist()})
     Dataset.from_list(rs).save_to_disk(f"{args.out}/real_sample")
