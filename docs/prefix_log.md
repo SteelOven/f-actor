@@ -147,3 +147,15 @@ heads frozen, 60 optimizer steps, 85 min, peak RSS 10.6 GB, merged model `oov-da
 Losses (train.log printed audio/text 4x too large: the model divides only the total by grad_acc_steps; fixed in local_train.py afterwards, corrected here):
 synthetic validation total 4.18 -> 2.45 (text 0.78 -> 0.02, audio 3.41 -> 2.43); real rows 4.43 -> 4.50 (text 0.69 -> 0.73, audio 3.74 -> 3.77).
 The validation dialogues use the same 5 words as training, so this shows the pattern is learned, not that it generalises (held-out / OOV evals follow).
+
+## 2026-10-31: micro-run 1 evaluated: the tuned model stops at once (training-data flaw), and the fix
+Eval (18 dialogues per model, Tom's request only + 0.3 s tail, training prompt format, 150 frames): base 0 / 18 with the target in speaker 2's text stream
+(train 0/4, heldout 0/6, oov 0/8; 1 early stop); tuned **18 / 18 stopped at the first generated frame** (`ended_by: eos`, 1 frame), so no test was possible.
+Probe (`oov-data/finetune/micro_eval/eos_probe.py`, P(any audio head = EOS) at the first generated frame, heldout `water`, by tail of the prefix):
+base raw .985, 0.1 s .883, 0.3 s 0, 0.6 s 0, 1.0 s 0, 2.0 s 0; tuned raw 1.000, 0.1 s 1.000, 0.3 s 1.000, 0.6 s .104, 1.0 s .030, 2.0 s .042.
+Cause: every training dialogue ended with exactly `tail_s = 0.3` s of silence, then the EOS that the training code appends. The model learned "EOS after
+~0.3 s of silence once a speaker is done"; the test prefix ends with exactly that. Real Behavior-SD dialogues end on a hard cut (0.08-0.20 s of silence in the mix),
+which is the cue the base model uses (see the tail sweeps above). Fix: `make_dataset.py --end-tail-s` (default 0.1 s) and test prefixes keep 0.3 s,
+so the end-of-dialogue cue and the test prefix differ. Dataset `oov-data/finetune/micro_v3` (same dialogues as micro_v2, tail 0.1 s: 268 vs 270 frames).
+Not yet a result about the skill: whether the tuned model repeats words is still untested. (Also: the EOS-at-the-end design means any synthetic dialogue
+teaches an end-of-dialogue cue; keep its form identical to the real data's.)

@@ -26,6 +26,9 @@ ap.add_argument("--min-ex", type=int, default=3); ap.add_argument("--max-ex", ty
 ap.add_argument("--tom-gain", type=float, default=5.6); ap.add_argument("--gweneth-gain", type=float, default=0.0)
 ap.add_argument("--tidy-replies", action=argparse.BooleanOptionalAction, default=True,
                 help="tidy_clip on Gweneth's replies: sound before the first word cut to 0.1 s, word gaps at most 0.2 s, 40 ms fade-out")
+ap.add_argument("--end-tail-s", type=float, default=0.1,
+                help="silence after the last turn of a training dialogue (the model appends EOS right after it). 0.3 s, the tail of the test prefix, taught "
+                     "the micro-run 1 model 'EOS after 0.3 s of silence'; real Behavior-SD dialogues end 0.1-0.2 s after the last word")
 ap.add_argument("--seed", type=int, default=0)
 ap.add_argument("--real-sample", type=int, default=0, help="stream this many real validation rows (needs network)")
 ap.add_argument("--real-only", action="store_true", help="only (re)build real_sample, keep train/ and validation/")
@@ -60,7 +63,7 @@ def build(n, offset):
             turns.append({"speaker": 0, "wav": f"{req[w]['dir']}/{req[w]['wav']}", "words": req[w]["words"], "gain_db": args.tom_gain})
             turns.append({"speaker": 1, "wav": f"{rep[w]['dir']}/{rep[w]['wav']}", "words": rep[w]["words"], "gain_db": args.gweneth_gain,
                           **({"tidy": {"lead_keep_s": 0.1, "max_gap_s": 0.2, "fade_s": 0.04}} if args.tidy_replies else {})})
-        rows, pf = dialogue_rows(turns, codec, tok)
+        rows, pf = dialogue_rows(turns, codec, tok, tail_s=args.end_tail_s)
         out += rows
         print(f"  dialogue {i}: {len(words)} exchanges, {pf.n_frames} frames ({pf.seconds:.0f} s): {' '.join(words)}", flush=True)
     return Dataset.from_list(out)
