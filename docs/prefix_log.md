@@ -23,7 +23,7 @@ text "Okay, {word}."; gap 0.5 s (Behavior-SD median); tail 0.3 s; gain +5.6 dB T
   - [x] `config_prefix` (`prefix.turns`, `gap_s`, `tail_s`) and `split_prefix_channels` (`_c2_prefix` written when there are turns);
     selftest covers the config path; 2-frame smoke run with the real model OK (`oov-data/scratch_eos/multiturn_smoke/`)
   - [ ] `check_prefix` multi-turn mode
-  - [ ] generator flags (`--prefix-demos` ...)
+  - [x] generator flags (`generate_oov_configs.py --prefix-demos N --demo-request-run-dir --demo-reply-run-dir --demo-pool-file --demo-exclude --demo-seed --demo-reply-gain-db --prefix-gap-s`); without `--prefix-demos` the configs are byte-identical to before (checked on the 6 tail-sweep configs)
   - [ ] grading of a non-silent channel 2 / `prefix_label` on the last request only
 - [ ] 3. golden check still PASS; `check_prefix` on a few multi-turn prefixes, listen
 - [ ] 4. local pilot: 4 frequent targets x {0,1,3} demos x 2 seeds, 150 frames, tail 0.3; Brian-channel ASR + `onset_s2`
