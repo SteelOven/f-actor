@@ -36,9 +36,9 @@ def _example(pf, names):
             "utterances": utts}
 
 
-def dialogue_rows(turns, codec, tokenizer, names=NAMES, gap_s=0.5, tail_s=0.3):
+def dialogue_rows(turns, codec, tokenizer, names=NAMES, gap_s=0.5, tail_s=0.3, lookahead_s=0.0):
     """turns: build_multiturn_prefix's (speaker 0 / 1, wav, words, gain_db). Returns ([row_tom_system, row_gweneth_system], Prefix)."""
-    pf = build_multiturn_prefix(turns, codec, tokenizer, gap_s=gap_s, tail_s=tail_s)
+    pf = build_multiturn_prefix(turns, codec, tokenizer, gap_s=gap_s, tail_s=tail_s, lookahead_s=lookahead_s)
     if pf.n_frames > MAX_LENGTH:
         raise ValueError(f"dialogue has {pf.n_frames} frames, max_length is {MAX_LENGTH}")
     d, t = pf.dsu[0].numpy(), pf.text[0].numpy()        # d: heads 0-3 speaker 0, 4-7 speaker 1; t: [speaker 0, speaker 1]

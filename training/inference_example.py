@@ -133,14 +133,15 @@ def config_prefix(config, model, nanocodec_model, tokenizer):
         if p["turns"][0].get("speaker", "speaker1") != "speaker1" or not config["speaker1"].get("starts", False):
             raise ValueError("prefix: the first turn must be by speaker1 (who starts the dialogue)")
         turns = [{**t, "wav": expand(t["wav"]), "speaker": t.get("speaker", "speaker1")} for t in p["turns"]]
-        kw = {k: p[k] for k in ("gap_s", "tail_s") if k in p}
+        kw = {k: p[k] for k in ("gap_s", "tail_s", "lookahead_s") if k in p}
         return build_multiturn_prefix(turns, nanocodec_model, tokenizer, gain_db=p.get("gain_db", 0.0),
                                       audio_delay_id=model.audio_delay_id, **kw)
     if p.get("speaker", "speaker1") != "speaker1" or not config["speaker1"].get("starts", False):
         raise ValueError("prefix: only a first turn by speaker1 (who starts the dialogue) is supported")
     wav = expand(p["wav"])
     return build_prefix(wav, p["words"], nanocodec_model, tokenizer, gain_db=p.get("gain_db", 0.0),
-                        audio_delay_id=model.audio_delay_id, tail_s=p.get("tail_s"))
+                        audio_delay_id=model.audio_delay_id, tail_s=p.get("tail_s"),
+                        lookahead_s=p.get("lookahead_s", 0.0))
 
 
 def _existing(path, given):

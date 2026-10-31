@@ -148,7 +148,7 @@ def tidy_clip(audio, words, *, lead_keep_s=None, max_gap_s=None, fade_s=0.0, sr=
 
 
 def build_prefix(wav_path, words, codec, tokenizer, *, gain_db=0.0, audio_delay_id=AUDIO_DELAY_ID,
-                 add_bc_token=True, add_interrupt_token=True, max_length=4096, tail_s=None):
+                 add_bc_token=True, add_interrupt_token=True, max_length=4096, tail_s=None, lookahead_s=0.0):
     """wav + [{"word", "start", "dur"}] (seconds) -> Prefix. Raises ValueError if the text does not fit the frames.
 
     tail_s: if set, the clip's trailing silence is trimmed and replaced by exactly tail_s of digital silence, so
@@ -159,8 +159,13 @@ def build_prefix(wav_path, words, codec, tokenizer, *, gain_db=0.0, audio_delay_
     audio, applied_gain = load_audio(wav_path, gain_db)
     if tail_s is not None:
         audio = set_tail(audio, applied_gain, words, tail_s)
-    speaker1 = encode(codec, audio)
-    speaker2 = encode(codec, np.zeros_like(audio))
+    if lookahead_s:          # encode extra silence after the prefix and cut the codes back (see build_multiturn_prefix)
+        n_real = -(-len(audio) // SAMPLES_PER_FRAME)
+        padded = np.concatenate([audio, np.zeros(int(round(lookahead_s * CODEC_SR)), dtype=np.float32)])
+        speaker1, speaker2 = encode(codec, padded)[:, :n_real], encode(codec, np.zeros_like(padded))[:, :n_real]
+    else:
+        speaker1 = encode(codec, audio)
+        speaker2 = encode(codec, np.zeros_like(audio))
     if speaker1.shape != speaker2.shape:
         raise ValueError(f"codes of speech {speaker1.shape} and silence {speaker2.shape} differ in shape")
     n_codes = speaker1.shape[1]
@@ -209,7 +214,7 @@ def _pack(speaker1, speaker2, example, tokenizer, audio_delay_id, add_bc_token, 
 
 def build_multiturn_prefix(turns, codec, tokenizer, *, gain_db=0.0, gap_s=0.5, tail_s=0.3,
                            audio_delay_id=AUDIO_DELAY_ID, add_bc_token=True, add_interrupt_token=True,
-                           max_length=4096):
+                           max_length=4096, lookahead_s=0.0):
     """Several turns by both speakers -> Prefix; the last turn is the one the model answers.
 
     turns: [{"speaker": 0 | 1, "wav": path, "words": [{"word", "start", "dur"}], "gain_db": optional,
@@ -222,7 +227,12 @@ def build_multiturn_prefix(turns, codec, tokenizer, *, gain_db=0.0, gap_s=0.5, t
     silence do not count. Trailing silence of every clip is trimmed (set_tail), and the last turn ends in exactly
     tail_s of digital silence (see build_prefix: a cut right after speech makes the model emit EOS at once).
     Word timings are shifted by the clip's offset, so the text streams come out as the training code makes them.
-    Two clips of the same speaker may not overlap in time. Raises ValueError if the text does not fit the frames."""
+    Two clips of the same speaker may not overlap in time. Raises ValueError if the text does not fit the frames.
+
+    lookahead_s: encode lookahead_s of extra silence after the last turn, then cut the codes back to the real length. NanoCodec codes
+    near the end of an encoded waveform differ from the codes of the same audio in the middle of a longer one (measured: from 0.34 s
+    before the speech ends, with a 0.3 s tail), and a model fine-tuned on dialogues that all end that way reads those end-of-file
+    codes as "EOS next" (docs/prefix_log.md). With lookahead the prefix codes are what they would be inside a longer dialogue."""
     if not turns:
         raise ValueError("turns is empty")
     placed, cursor, ch_end = [], 0.0, {0: 0, 1: 0}
@@ -246,10 +256,14 @@ def build_multiturn_prefix(turns, codec, tokenizer, *, gain_db=0.0, gap_s=0.5, t
         placed.append((spk, t, audio, applied, off_samples, offset))
 
     total = max(p[4] + len(p[2]) for p in placed)
-    channels = [np.zeros(total, dtype=np.float32), np.zeros(total, dtype=np.float32)]
+    extra = int(round(lookahead_s * CODEC_SR))
+    channels = [np.zeros(total + extra, dtype=np.float32), np.zeros(total + extra, dtype=np.float32)]
     for spk, _, audio, _, off_samples, _ in placed:
         channels[spk][off_samples: off_samples + len(audio)] = audio
     speaker1, speaker2 = encode(codec, channels[0]), encode(codec, channels[1])
+    if extra:
+        n_real = -(-total // SAMPLES_PER_FRAME)                    # frames the real audio alone would give
+        speaker1, speaker2 = speaker1[:, :n_real], speaker2[:, :n_real]
     if speaker1.shape != speaker2.shape:
         raise ValueError(f"codes of the two channels differ in shape: {speaker1.shape} {speaker2.shape}")
     n_codes = speaker1.shape[1]

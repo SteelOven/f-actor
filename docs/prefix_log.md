@@ -159,3 +159,20 @@ which is the cue the base model uses (see the tail sweeps above). Fix: `make_dat
 so the end-of-dialogue cue and the test prefix differ. Dataset `oov-data/finetune/micro_v3` (same dialogues as micro_v2, tail 0.1 s: 268 vs 270 frames).
 Not yet a result about the skill: whether the tuned model repeats words is still untested. (Also: the EOS-at-the-end design means any synthetic dialogue
 teaches an end-of-dialogue cue; keep its form identical to the real data's.)
+
+## 2026-10-31: why the micro-run 1 model stops: two cues, one of them is the codec's end-of-file signature
+Question: silence between turns is 0.1-1 s in normal dialogue, so why does ~0.3 s of silence end the tuned model? Silence length is not the cue. Probes (tuned model,
+`oov-data/finetune/micro_eval/eos_where*.py`, `eos_lookahead.py`; P(any head = EOS) from a teacher-forced forward pass):
+- On a training dialogue and on an unseen validation dialogue the tuned model puts P(EOS) ~1.0 exactly after the last frame and < 0.05 everywhere else, including the 0.5 s gaps
+  between turns (base: <= 0.02 everywhere). So it learned the *end* of these dialogues, not silence.
+- The same request + 0.3 s tail gets P(EOS) 0.000 inside a dialogue but 1.000 as a standalone prefix, with identical history. The audio codes of the identical history already
+  differ from 0.34 s before the end of the speech: NanoCodec codes near the end of an encoded waveform differ from the codes of the same audio inside a longer waveform (the
+  encoder's boundary). Every real dialogue ends with that signature (so does every standalone prefix); the fine-tuned model learned "this signature -> EOS next" much more sharply
+  than the base model did (40 rows, each with exactly one such end).
+- Remedy for prefixes: `lookahead_s` (build_prefix / build_multiturn_prefix / config key / `--prefix-lookahead-s`): encode extra silence after the prefix and cut the codes back.
+  P(EOS) at the last prefix frame (water / kitchen / hello), encoded alone -> with 1.5 s look-ahead:
+  base, tail 0.1 s: .22 / .18 / .76 -> .00 / .00 / .00; base, tail 0.3 s: 0 -> 0.
+  tuned, tail 0.0 s: .00 / .07 / .00 -> .00; tuned, tail 0.1 s: .61 / .95 / 1.0 -> .00 / .00 / .00; tuned, tail 0.3 s: 1.0 / 1.0 / 1.0 -> 1.00 / .81 / .17.
+- So there are two cues: (1) the end-of-file codes (seen by base and tuned), which look-ahead removes; (2) the tuned model's own "0.3 s of silence after the last speech -> EOS", from
+  the 0.3 s tail of all micro_v2 dialogues (micro_v3 ends 0.1 s after the last word instead). Use look-ahead and a tail other than 0.3 s with micro-run 1's model.
+- Consequence for the earlier tail experiments: the "abrupt stop" they fixed with a 0.3 s tail was at least partly this end-of-file artifact (base with look-ahead: P(EOS) ~0 even at 0.0-0.1 s).

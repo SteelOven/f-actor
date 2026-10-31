@@ -103,6 +103,7 @@ def make_prefix(row, args):
         "target_idx": row["target_idx"],
         "gain_db": args.prefix_gain_db,
         **({"tail_s": args.prefix_tail_s} if args.prefix_tail_s is not None else {}),
+        **({"lookahead_s": args.prefix_lookahead_s} if args.prefix_lookahead_s else {}),
         "source": {"run": os.path.basename(os.path.normpath(args.prefix_run_dir)), "voice": row["voice"],
                    "aligner": row["aligner"]},
     }
@@ -128,6 +129,7 @@ def make_multiturn_prefix(row, demos, args):
     turns.append(last)
     return {
         "turns": turns, "gap_s": args.prefix_gap_s,
+        **({"lookahead_s": args.prefix_lookahead_s} if args.prefix_lookahead_s else {}),
         "tail_s": args.prefix_tail_s if args.prefix_tail_s is not None else DEFAULT_MULTITURN_TAIL_S,
         "source": {"run": os.path.basename(os.path.normpath(args.prefix_run_dir)), "voice": row["voice"],
                    "aligner": row["aligner"], "demo_requests": os.path.basename(os.path.normpath(args.demo_request_run_dir)),
@@ -245,6 +247,9 @@ def main():
                         help="gain of the replies (Gweneth's CosyVoice clips are already at Behavior-SD's level)")
     parser.add_argument("--prompt-format", choices=["inference", "training"], default="inference", dest="prompt_format",
                         help="'training': the narrative is written as '- <narrative>' like training's build_prompt (for fine-tuned models)")
+    parser.add_argument("--prefix-lookahead-s", type=float, default=0.0, dest="prefix_lookahead_s",
+                        help="encode this much extra silence after the prefix and cut the codes back: the codec's end-of-file codes otherwise "
+                             "sit at the prefix end and the model reads them as 'EOS next' (docs/prefix_log.md)")
     parser.add_argument("--prefix-gap-s", type=float, default=0.5, dest="prefix_gap_s",
                         help="between a turn's last word and the next turn's first word (Behavior-SD median 0.49 s)")
     args = parser.parse_args()
