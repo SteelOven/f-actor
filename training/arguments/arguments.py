@@ -37,6 +37,8 @@ class DataArgs:
     use_system_narrative: bool = False
     remove_start_silence: bool = False
     preprocessing_num_workers: Optional[int] = None
+    # None: random system/user role per example (coin flip). 0 or 1: always that speaker as system.
+    system_speaker: Optional[int] = None
 
     def __post_init__(self):
         if (self.add_bc_token and self.add_counting_tokens) or (
