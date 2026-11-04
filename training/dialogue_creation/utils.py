@@ -48,8 +48,12 @@ def get_train_subset(train_dataset, train_on_subset, logger):
     return train_dataset
 
 
-def prepare_dsu(example, num_dsus, remove_start_silence, max_length, inference=False):
-    if inference:
+def prepare_dsu(
+    example, num_dsus, remove_start_silence, max_length, inference=False, system_speaker=None
+):
+    if system_speaker is not None:  # fixed role: 0 = channel 1 / speaker 1, 1 = channel 2 / speaker 2
+        role_to_speaker_map = {"system": system_speaker, "user": 1 - system_speaker}
+    elif inference:
         role_to_speaker_map = {"system": 0, "user": 1}
     else:
         if np.random.rand() < 0.5:

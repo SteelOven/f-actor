@@ -38,6 +38,7 @@ def load_speech_data(
             data_args.remove_start_silence,
             max_length,
             inference=inference,
+            system_speaker=getattr(data_args, "system_speaker", None),
         )
 
         dsu_ids_list = np.concatenate([dsu_s, dsu_u], axis=0)
