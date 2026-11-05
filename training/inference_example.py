@@ -16,7 +16,8 @@ import re
 
 def load_model():
     device = get_device()
-    model_id = snapshot_download(
+    # FACTOR_MODEL_DIR: a local model dir (e.g. <run>/best_model of a fine-tune) instead of the released checkpoint
+    model_id = os.environ.get("FACTOR_MODEL_DIR") or snapshot_download(
         repo_id="maikezu/f-actor", local_dir=f"./hf_models/f_actor"
     )
     tokenizer = AutoTokenizer.from_pretrained(
