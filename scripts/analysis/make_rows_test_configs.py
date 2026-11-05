@@ -3,7 +3,8 @@
 One config per row of a split (default: validation = words the fine-tune never saw). Narratives, speaker names and the
 prefix words are taken from the rows themselves, so the model is prompted exactly as in training: speaker 1 (the request
 speaker) starts, speaker 2 (the reply speaker, system_speaker=1 in training) does not, no backchannels or interruptions.
-The prefix is the request clip as it is (tail_s unset), as in the rows: the reply follows the clip's own trailing silence.
+By default the prefix is the request clip as it is; --tail-s N replaces its trailing silence by N seconds (a prefix that ends right
+after the last word makes the model emit EOS at the first generated frame, see docs/prefix_log.md).
 
     python scripts/analysis/make_rows_test_configs.py --rows-dir $WS/finetune/p7_short_ok \\
         --request-dir $WS/checks/p6_full_request_s0_ok --timings $WS/finetune/p7_short_ok.timings.json \\
@@ -34,6 +35,8 @@ def main(argv=None):
     ap.add_argument("--timings", type=Path, required=True, help="the rows script's --timing-cache json (word timings per wav)")
     ap.add_argument("--out-dir", type=Path, required=True, help="where the config JSONs go")
     ap.add_argument("--output-dir", required=True, help="output_dir written into the configs (generated audio)")
+    ap.add_argument("--tail-s", type=float, help="trim the request clip's trailing silence and add exactly this much digital silence "
+                    "(prefix.py build_prefix tail_s); default: keep the clip as it is")
     ap.add_argument("--max-length", type=int, default=256, help="generation limit in frames (12.5 per second)")
     ap.add_argument("--temperature", type=float, default=0.9)
     args = ap.parse_args(argv)
@@ -53,7 +56,7 @@ def main(argv=None):
             "meta": {"word": word, "split": args.split},
             "speaker1": {"name": spk1, "narrative": r["new_narrative_s1"], "starts": True, "backchannels": 0, "interruptions": 0},
             "speaker2": {"name": spk2, "narrative": r["new_narrative_s2"], "starts": False, "backchannels": 0, "interruptions": 0},
-            "prefix": {"wav": str(wav), "words": words},
+            "prefix": {"wav": str(wav), "words": words, **({"tail_s": args.tail_s} if args.tail_s is not None else {})},
             "output_dir": args.output_dir,
             "output_file": f"{word}.wav",
             "max_length": args.max_length,
