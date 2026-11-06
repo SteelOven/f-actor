@@ -73,3 +73,18 @@ Question: why does generation end at the first frame after some prefixes?
 
 Turn statistics from Behavior-SD validation (13.6k turn boundaries): gap between turns median 0.49 s (IQR 0.27-0.67), 12% overlap;
 turn median 9 words / 3.1 s.
+
+## 2026-11-06: baseline continuation check, released model, three request texts (job 8366726)
+
+Question: does the released model continue after the prefix, and does it depend on the request text? `baseline_prefix_check.sh`
+(6 words, 1 dialogue each, tail none / 0.3, request texts p4_repeat, p1_oov150, p3_prefix_tom). Raw outputs and per-dialogue
+table: `oov-data/f-actor/outputs/pfxcheck_*`, `pfxcheck_job8366726/run.json`. (Job 8327977 died first: p1_oov150 had no
+`alignment.jsonl` on the cluster; copied from the laptop after checking wavs and manifest are byte-identical.)
+- Immediate stop = `ended_by: eos` after <= 2 generated frames. The log's summary table counts every `eos` together, so read the
+  frame counts, not that table.
+- No tail: p4_repeat 5/6 immediate stops, p1_oov150 1/6 (archband), p3_prefix_tom 0/6. Tail 0.3: 0/18 in all three.
+- Late `eos` (394-505 frames) and `max_length` are continuations. 0/6 per cell is only an upper bound of ~40% on the stop rate.
+- Not graded: whether Tom or the partner said the target word.
+- Decision: request text p4_repeat (matches the fine-tune request) with `tail_s = 0.3`; never p4 without the tail.
+- Next: `prefix_continuation_check.sh`, 112 gated OOV words (p4_repeat) + the 92 fine-tune words (p6_full_request_s0), 3 repeats,
+  tail 0.3, one model load. Pass if the immediate-stop rate is < 2% (upper 95% bound reported). Repeat on the fine-tuned model.
