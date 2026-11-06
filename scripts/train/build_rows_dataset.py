@@ -82,7 +82,8 @@ def main(argv=None):
     ap.add_argument("--narrative-requester", default=NARRATIVE_REQUESTER)
     ap.add_argument("--narrative-replier", default=NARRATIVE_REPLIER)
     ap.add_argument("--val-frac", type=float, default=0.1)
-    ap.add_argument("--limit", type=int, help="first N words only (smoke test)")
+    ap.add_argument("--limit", type=int, help="N words only, drawn with --seed (smoke test)")
+    ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args(argv)
 
     from nano_decode import load_model as load_codec
@@ -101,7 +102,8 @@ def main(argv=None):
         if ws:
             print(f"skipped ({why}): {len(ws)}: {' '.join(ws)}")
     if args.limit:
-        words = words[:args.limit]
+        import random
+        words = sorted(random.Random(args.seed).sample(words, min(args.limit, len(words))))
     print(f"{len(words)} words -> rows")
 
     codec = load_codec(num_codebooks=4).to("cuda" if torch.cuda.is_available() else "cpu")
@@ -120,6 +122,9 @@ def main(argv=None):
                 new_narrative_s2=args.narrative_replier.format(partner=t0, word=w),
                 file_name=w))
     n_train, n_val = write_dataset(rows, args.out_dir, val_frac=args.val_frac)
+    # word timings per wav, the --timings file of make_rows_test_configs.py
+    timings = {str(req[w][0]): req[w][1] for w in words} | {str(rep[w][0]): rep[w][1] for w in words}
+    Path(str(args.out_dir).rstrip("/") + ".timings.json").write_text(json.dumps(timings))
     Path(args.out_dir, "run.json").write_text(json.dumps({"args": vars(args), "n_train": n_train, "n_val": n_val,
                                                           "words": words}, indent=1))
     print(f"wrote {n_train} train, {n_val} validation rows to {args.out_dir}")
