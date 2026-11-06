@@ -7,7 +7,8 @@ silence after the reply (default 0), so the model sees what follows the answer.
     python scripts/train/build_rows_dataset.py \\
         --request-dir $WS/checks/p6_full_request_s0_ok --reply-dir $WS/checks/p7_reply_short_s0_ok --out-dir $WS/finetune/p8_rows
 
-Each run dir needs manifest.jsonl (word, wav) and alignment.jsonl (word, wav, words[{word,start,dur}]; oov-shared's align stage).
+Each run dir needs manifest.jsonl (word, wav) and alignment.jsonl (word, wav, words[{word,start,dur}]; oov-shared's align stage;
+for a `_ok` dir the parent run's alignment.jsonl is used).
 Words missing from either dir, controls, and words without an alignment are skipped and listed. --exclude takes word files
 (csv with a `word` column, jsonl, or one word per line) that must not be trained on, e.g. the held-out gated OOV list.
 Narratives are the prompts of the rows: the same text must be used at generation time (generate_oov_configs.py
@@ -49,7 +50,12 @@ def clips(run_dir):
     wav_of = {m["word"]: run_dir / m["wav"] for m in read_jsonl(run_dir / "manifest.jsonl")
               if "wav" in m and not m.get("is_control")}
     out = {}
-    for a in read_jsonl(run_dir / "alignment.jsonl"):
+    align = run_dir / "alignment.jsonl"
+    if not align.exists() and run_dir.name.endswith("_ok"):   # select_clips copies manifest and audio, the align stage wrote the parent
+        align = run_dir.with_name(run_dir.name[:-3]) / "alignment.jsonl"
+    if not align.exists():
+        sys.exit(f"error: no alignment.jsonl for {run_dir} (run the align stage on the run: checks/asr_roundtrip.py align <config>)")
+    for a in read_jsonl(align):
         if a["word"] in wav_of and a.get("words"):
             out[a["word"]] = (wav_of[a["word"]], a["words"])
     return wav_of, out
