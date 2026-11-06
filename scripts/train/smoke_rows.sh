@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Smoke test of the request -> reply fine-tune, inside the container (interactive: ~/personaplex/cluster/cluster_shell.sh, GPU node).
 # Stages (run one, several or all; a finished stage is cheap to rerun):
-#   align   forced alignment of the reply clips (CPU, ~4 s per clip, needs $WS/align-venv)
+#   align   forced alignment of the reply clips (CPU, ~4 s per clip, needs $WS/align-venv; resumes, skips unalignable clips)
 #   build   N words -> rows (train/validation); the validation words are never trained on
 #   train   LoRA-free full fine-tune, few steps (finetune_rows.sh)
 #   eval    request + 0.3 s tail as prefix on the validation words, base model and tuned model, then the answer score
@@ -24,7 +24,6 @@ PY=${FACTOR_PYTHON:-python3}
 export HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
 
 stage_align() {
-  [[ -f $WS/checks/p7_reply_short_s0/alignment.jsonl ]] && { echo "align: already there"; return; }
   (cd /workspace/oov-shared && export TORCH_HOME=$WS/torch-hub WS \
     && $WS/align-venv/bin/python3 checks/asr_roundtrip.py align checks/configs/p7_reply_short_s0.yaml 2>&1 | grep -v Warning | tail -3)
   [[ -f $WS/checks/p7_reply_short_s0/alignment.jsonl ]] || { echo "error: align wrote no alignment.jsonl" >&2; exit 2; }
