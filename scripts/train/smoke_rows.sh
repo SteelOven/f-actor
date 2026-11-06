@@ -4,6 +4,7 @@
 #   align   forced alignment of the reply clips (CPU, ~4 s per clip, needs $WS/align-venv; resumes, skips unalignable clips)
 #   build   N words -> rows (train/validation); the validation words are never trained on
 #   train   LoRA-free full fine-tune, few steps (finetune_rows.sh)
+#   probe   P(EOS) at the first frame per word, base and tuned, with and without prefix look-ahead (after eval)
 #   eval    request + 0.3 s tail as prefix on the validation words, base model and tuned model, then the answer score
 #
 #   cd /workspace/factor-code && git checkout answer-finetune
@@ -38,7 +39,7 @@ stage_eval() {
   for who in baseline tuned; do
     rm -rf "$conf/$who"; mkdir -p "$out/$who"
     $PY scripts/analysis/make_rows_test_configs.py --rows-dir "$WS/$DATA" --request-dir "$REQ" --timings "$WS/$DATA.timings.json" \
-        --out-dir "$conf/$who" --output-dir "$out/$who" --tail-s "$TAIL"
+        --out-dir "$conf/$who" --output-dir "$out/$who" --tail-s "$TAIL" --lookahead-s "${LOOKAHEAD:-0}"
   done
   $PY training/run_oov_batch.py --configs-glob "$conf/baseline/*.json"
   FACTOR_MODEL_DIR=$WS/finetune/runs/$NAME/best_model $PY training/run_oov_batch.py --configs-glob "$conf/tuned/*.json"
@@ -53,6 +54,16 @@ print(len(r), "dialogues; ended_by:", {k: sum(g["ended_by"] == k for g in r) for
 PYEOF
   done
   for who in baseline tuned; do echo "== answer score: $who"; $PY scripts/analysis/score_rows_test.py --configs-glob "$conf/$who/*.json" | tail -15; done
+}
+
+stage_probe() {   # P(EOS) at the first generated frame per word, base and tuned model, with and without prefix look-ahead (needs eval's configs)
+  local conf=confs/rows_test_$NAME
+  [[ -d $conf/tuned ]] || { echo "error: run the eval stage first ($conf/tuned missing)" >&2; exit 2; }
+  for who in baseline tuned; do
+    echo "== probe: $who"
+    local md=""; [[ $who == tuned ]] && md=$WS/finetune/runs/$NAME/best_model
+    FACTOR_MODEL_DIR=$md $PY scripts/analysis/eos_probe.py "$conf/$who/*.json" raw:0 0.3:0 0.3:1.5 raw:1.5 2>&1 | grep -v -i "warn" | grep -E "^(word|mean|RESULT|[a-z]+ +[0-9a-z.]+:?)" | tail -20
+  done
 }
 
 [[ $# -gt 0 ]] || { sed -n 2,14p "$0"; exit 1; }

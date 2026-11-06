@@ -37,6 +37,8 @@ def main(argv=None):
     ap.add_argument("--output-dir", required=True, help="output_dir written into the configs (generated audio)")
     ap.add_argument("--tail-s", type=float, help="trim the request clip's trailing silence and add exactly this much digital silence "
                     "(prefix.py build_prefix tail_s); default: keep the clip as it is")
+    ap.add_argument("--lookahead-s", type=float, default=0.0, help="prefix look-ahead (prefix.py): encode this much extra silence and cut the "
+                    "codes back, which removes the codec's end-of-file codes from the prefix end")
     ap.add_argument("--max-length", type=int, default=256, help="generation limit in frames (12.5 per second)")
     ap.add_argument("--temperature", type=float, default=0.9)
     args = ap.parse_args(argv)
@@ -56,7 +58,8 @@ def main(argv=None):
             "meta": {"word": word, "split": args.split},
             "speaker1": {"name": spk1, "narrative": r["new_narrative_s1"], "starts": True, "backchannels": 0, "interruptions": 0},
             "speaker2": {"name": spk2, "narrative": r["new_narrative_s2"], "starts": False, "backchannels": 0, "interruptions": 0},
-            "prefix": {"wav": str(wav), "words": words, **({"tail_s": args.tail_s} if args.tail_s is not None else {})},
+            "prefix": {"wav": str(wav), "words": words, **({"tail_s": args.tail_s} if args.tail_s is not None else {}),
+                       **({"lookahead_s": args.lookahead_s} if args.lookahead_s else {})},
             "output_dir": args.output_dir,
             "output_file": f"{word}.wav",
             "max_length": args.max_length,
