@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Fine-tune the released f-actor checkpoint on rows from tts_rows (request/reply clips), one GPU, plain `python training/finetune.py`.
 # The model plays the reply speaker (speaker 1: --system_speaker 1), prompted with that speaker's narrative (--use_system_narrative).
+# Loss only on the system (reply) streams (--calc_loss_on_c1_only, the same half eval always scores): the request is teacher-forced at
+# inference, so training on it is wasted. Without the flag, training scores both streams while eval scores only the reply.
 #
 #   bash scripts/train/finetune_rows.sh <run_name> [max_steps=20] [data=finetune/p7_short_ok] [lr=1e-5]
 #
@@ -29,6 +31,7 @@ ${FACTOR_PYTHON:-python3} training/finetune.py \
   --use_speaker_embedding \
   --use_system_narrative \
   --system_speaker 1 \
+  --calc_loss_on_c1_only \
   --word_alignment \
   --max_length 2048 \
   --audio_vocab_size 4032 \
