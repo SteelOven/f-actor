@@ -43,6 +43,7 @@ def main(argv=None):
                     help="'training': write the narrative as '- <narrative>' like training's build_prompt (inference_example's default omits the dash)")
     ap.add_argument("--silence-speaker1", action="store_true", help="after the prefix, speaker 1 (the request speaker) stays silent "
                     "(its audio heads are set to silence, not sampled), as in the training rows")
+    ap.add_argument("--repeats", type=int, default=1, help="configs per word (sampling is unseeded: independent draws); files <word>_r<k>")
     ap.add_argument("--max-length", type=int, default=256, help="generation limit in frames (12.5 per second)")
     ap.add_argument("--temperature", type=float, default=0.9)
     args = ap.parse_args(argv)
@@ -53,7 +54,8 @@ def main(argv=None):
     by_name = {Path(k).name: v for k, v in timings.items()}  # robust to the cluster vs laptop path prefix
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    for r in rows:
+    for r, k in ((r, k) for r in rows for k in range(args.repeats)):
+        tag = f"_r{k}" if args.repeats > 1 else ""
         word = r["file_name"]
         wav = clips[word]
         words = timings.get(str(wav)) or by_name[wav.name]
@@ -67,14 +69,14 @@ def main(argv=None):
             **({"prompt_format": args.prompt_format} if args.prompt_format != "default" else {}),
             **({"silence_speaker1": True} if args.silence_speaker1 else {}),
             "output_dir": args.output_dir,
-            "output_file": f"{word}.wav",
+            "output_file": f"{word}{tag}.wav",
             "max_length": args.max_length,
             "temperature": args.temperature,
             "top_k": 40,
             "top_p": 1.0,
         }
-        (args.out_dir / f"{word}.json").write_text(json.dumps(cfg, indent=2))
-    print(f"wrote {len(rows)} configs ({args.split}) to {args.out_dir}")
+        (args.out_dir / f"{word}{tag}.json").write_text(json.dumps(cfg, indent=2))
+    print(f"wrote {len(rows) * args.repeats} configs ({len(rows)} words x {args.repeats}, {args.split}) to {args.out_dir}")
 
 
 if __name__ == "__main__":
