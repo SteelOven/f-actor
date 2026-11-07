@@ -17,6 +17,9 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 WS=${WS_DIR:-/workspace/ws}
 N=${N:-50}; VAL=${VAL:-0.2}; STEPS=${STEPS:-20}; LR=${LR:-1e-5}; TAIL=${TAIL:-0.3}; NAME=${NAME:-smoke40}
+TAG=${TAG:-$NAME}               # eval/probe output names (confs/rows_test_<TAG>), so a rerun does not overwrite
+SPLIT=${SPLIT:-validation}      # eval words: validation (unseen) or train (the overfit test)
+WHO=${WHO:-"baseline tuned"}    # which models eval generates with
 REQ=$WS/checks/p6_full_request_s0_ok
 REPLY=$WS/checks/p7_reply_short_s0_ok
 DATA=finetune/$NAME
@@ -35,15 +38,15 @@ stage_build() {
 }
 stage_train() { bash scripts/train/finetune_rows.sh "$NAME" "$STEPS" "$DATA" "$LR"; }
 stage_eval() {
-  local conf=confs/rows_test_$NAME out=outputs/rows_test_$NAME
-  for who in baseline tuned; do
+  local conf=confs/rows_test_$TAG out=outputs/rows_test_$TAG
+  for who in $WHO; do
     rm -rf "$conf/$who"; mkdir -p "$out/$who"
     $PY scripts/analysis/make_rows_test_configs.py --rows-dir "$WS/$DATA" --request-dir "$REQ" --timings "$WS/$DATA.timings.json" \
-        --out-dir "$conf/$who" --output-dir "$out/$who" --tail-s "$TAIL" --lookahead-s "${LOOKAHEAD:-0}"
+        --out-dir "$conf/$who" --output-dir "$out/$who" --split "$SPLIT" --tail-s "$TAIL" --lookahead-s "${LOOKAHEAD:-0}"
   done
-  $PY training/run_oov_batch.py --configs-glob "$conf/baseline/*.json"
-  FACTOR_MODEL_DIR=$WS/finetune/runs/$NAME/best_model $PY training/run_oov_batch.py --configs-glob "$conf/tuned/*.json"
-  for who in baseline tuned; do
+  [[ " $WHO " == *" baseline "* ]] && $PY training/run_oov_batch.py --configs-glob "$conf/baseline/*.json"
+  [[ " $WHO " == *" tuned "* ]] && FACTOR_MODEL_DIR=$WS/finetune/runs/$NAME/best_model $PY training/run_oov_batch.py --configs-glob "$conf/tuned/*.json"
+  for who in $WHO; do
     echo "== ended_by / frames: $who"
     $PY - "$out/$who" <<'PYEOF'
 import glob, json, sys
@@ -53,11 +56,11 @@ print(len(r), "dialogues; ended_by:", {k: sum(g["ended_by"] == k for g in r) for
       "| frames:", [g["n_generated_frames"] for g in r])
 PYEOF
   done
-  for who in baseline tuned; do echo "== answer score: $who"; $PY scripts/analysis/score_rows_test.py --configs-glob "$conf/$who/*.json" | tail -15; done
+  for who in $WHO; do echo "== answer score: $who"; $PY scripts/analysis/score_rows_test.py --configs-glob "$conf/$who/*.json" | tail -15; done
 }
 
 stage_probe() {   # P(EOS) at the first generated frame per word, base and tuned model, with and without prefix look-ahead (needs eval's configs)
-  local conf=confs/rows_test_$NAME
+  local conf=confs/rows_test_$TAG
   [[ -d $conf/tuned ]] || { echo "error: run the eval stage first ($conf/tuned missing)" >&2; exit 2; }
   for who in baseline tuned; do
     echo "== probe: $who"
