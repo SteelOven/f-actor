@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=oov_factor_analyze
+#SBATCH --mail-type=END,FAIL
+#SBATCH --mail-user=udtmx@student.kit.edu
 #SBATCH --partition=cpu
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=16G
