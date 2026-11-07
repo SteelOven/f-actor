@@ -680,6 +680,10 @@ class DSUModel(ModelInitializerLoader):
         n_delay_text_stream = kwargs.pop("n_delay_text_stream", 0)
         talk_to_itself = kwargs.pop("talk_to_itself", True)
         spk_emb = kwargs.pop("spk_emb", None)
+        # experiment switch (default off): after the prefix, speaker 1's own audio heads are set to the silence codes of the prefix's
+        # silent channel instead of being sampled, so speaker 2 hears silence as in a fine-tune whose rows keep the request speaker
+        # silent after the request. Speaker 1's EOS can then no longer stop the run; speaker 2's still does.
+        silence_speaker1 = kwargs.pop("silence_speaker1", False)
 
         if self.text_stream and text_sample is not None and dsu_sample is None:
             raise ValueError("Need to add dsu sample if you want text sample!")
@@ -731,6 +735,12 @@ class DSUModel(ModelInitializerLoader):
             return out
 
         len_context = use_speaker_sample
+        if silence_speaker1:
+            if not talk_to_itself or len_context < 1 or dsu_sample.shape[1] < 2 * (self.num_dsu_heads // 2):
+                raise ValueError("silence_speaker1 needs talk_to_itself, a prefix, and a prefix with both speakers' heads")
+            half_heads = self.num_dsu_heads // 2
+            # speaker 2's encoded silence in the prefix: the most common code per head (not the last frame, which can carry end-of-file codes)
+            silence_codes = torch.mode(dsu_sample[0, half_heads:, n_delay_audio_stream:len_context], dim=1).values.clone()
 
         # define max_length, start step and last step
         max_length = max_length + len_context
@@ -790,6 +800,8 @@ class DSUModel(ModelInitializerLoader):
                     B, ts_logits, do_sample, temperature, top_k, top_p
                 )
 
+            if silence_speaker1:
+                generated_dsu[0, : self.num_dsu_heads // 2, step] = silence_codes
             if talk_to_itself:
                 generated_dsu = interleave_halves(generated_dsu)
                 if self.num_text_streams > 1:

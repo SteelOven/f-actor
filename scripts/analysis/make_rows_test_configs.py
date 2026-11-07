@@ -41,6 +41,8 @@ def main(argv=None):
                     "codes back, which removes the codec's end-of-file codes from the prefix end")
     ap.add_argument("--prompt-format", choices=["default", "training"], default="default",
                     help="'training': write the narrative as '- <narrative>' like training's build_prompt (inference_example's default omits the dash)")
+    ap.add_argument("--silence-speaker1", action="store_true", help="after the prefix, speaker 1 (the request speaker) stays silent "
+                    "(its audio heads are set to silence, not sampled), as in the training rows")
     ap.add_argument("--max-length", type=int, default=256, help="generation limit in frames (12.5 per second)")
     ap.add_argument("--temperature", type=float, default=0.9)
     args = ap.parse_args(argv)
@@ -63,6 +65,7 @@ def main(argv=None):
             "prefix": {"wav": str(wav), "words": words, **({"tail_s": args.tail_s} if args.tail_s is not None else {}),
                        **({"lookahead_s": args.lookahead_s} if args.lookahead_s else {})},
             **({"prompt_format": args.prompt_format} if args.prompt_format != "default" else {}),
+            **({"silence_speaker1": True} if args.silence_speaker1 else {}),
             "output_dir": args.output_dir,
             "output_file": f"{word}.wav",
             "max_length": args.max_length,
