@@ -56,7 +56,8 @@ class DataArgs:
 class TrainingArgs:
     train_batch_size: int = 1
     eval_batch_size: int = 1
-    early_stopping_patience: int = 10
+    early_stopping_patience: int = 10  # <= 0: no early stopping
+    keep_final_model: bool = False  # flag: keep the last weights instead of reloading the best eval_loss checkpoint (best_model/ then holds the final weights)
     max_steps: int = 100000
     num_train_epochs: int = 0
     learning_rate: float = 5e-5
