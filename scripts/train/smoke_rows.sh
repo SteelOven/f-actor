@@ -44,7 +44,7 @@ stage_eval() {
   for who in $WHO; do
     rm -rf "$conf/$who"; mkdir -p "$out/$who"
     $PY scripts/analysis/make_rows_test_configs.py --rows-dir "$WS/$DATA" --request-dir "$REQ" --timings "$WS/$DATA.timings.json" \
-        --out-dir "$conf/$who" --output-dir "$out/$who" --split "$SPLIT" --tail-s "$TAIL" --lookahead-s "${LOOKAHEAD:-0}" --prompt-format "${PROMPT:-default}" ${SILENCE1:+--silence-speaker1}
+        --out-dir "$conf/$who" --output-dir "$out/$who" --split "$SPLIT" --tail-s "$TAIL" --lookahead-s "${LOOKAHEAD:-0}" --prompt-format "${PROMPT:-default}" ${SILENCE1:+--silence-speaker1} --repeats "${REPEATS:-1}"
   done
   [[ " $WHO " == *" baseline "* ]] && $PY training/run_oov_batch.py --configs-glob "$conf/baseline/*.json"
   [[ " $WHO " == *" tuned "* ]] && FACTOR_MODEL_DIR=$WS/finetune/runs/$NAME/best_model $PY training/run_oov_batch.py --configs-glob "$conf/tuned/*.json"
