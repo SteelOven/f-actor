@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=oov_factor_gen
+#SBATCH --mail-type=END,FAIL
+#SBATCH --mail-user=udtmx@student.kit.edu
 #SBATCH --partition=gpu_h100
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-gpu=8
