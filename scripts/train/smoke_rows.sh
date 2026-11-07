@@ -5,6 +5,8 @@
 #   build   N words -> rows (train/validation); the validation words are never trained on
 #   train   LoRA-free full fine-tune, few steps (finetune_rows.sh)
 #   probe   P(EOS) at the first frame per word, base and tuned, with and without prefix look-ahead (after eval)
+#   tf      teacher-forced check of the tuned model on the unseen (validation) words, narrative as trained / without the word / with another word
+#           (does it copy the word from the request audio, or read it from the narrative, or recall a trained word?); TFMODEL=baseline for the base model, TFSPLIT=train for the trained words
 #   eval    request + 0.3 s tail as prefix on the validation words, base model and tuned model, then the answer score
 #
 #   cd /workspace/factor-code && git checkout answer-finetune
@@ -69,6 +71,12 @@ stage_probe() {   # P(EOS) at the first generated frame per word, base and tuned
     local md=""; [[ $who == tuned ]] && md=$WS/finetune/runs/$NAME/best_model
     FACTOR_MODEL_DIR=$md $PY scripts/analysis/eos_probe.py "$conf/$who/*.json" raw:0 0.3:0 0.3:1.5 raw:1.5 2>&1 | grep -v -i "warn" | grep -E "^(word|mean|RESULT|[a-z]+ +[0-9a-z.]+:?)" | tail -20
   done
+}
+
+stage_tf() {
+  local md=$WS/finetune/runs/$NAME/best_model; [[ ${TFMODEL:-tuned} == baseline ]] && md=""
+  FACTOR_MODEL_DIR=$md $PY scripts/analysis/teacher_forced_check.py --rows-dir "$WS/$DATA" --split "${TFSPLIT:-validation}" \
+      --narrative orig none swap 2>&1 | grep -v -i "warn" | grep -E "^(########|REPLY|TOTAL|[a-z]+ )" 
 }
 
 [[ $# -gt 0 ]] || { sed -n 2,14p "$0"; exit 1; }

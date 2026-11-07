@@ -11,11 +11,23 @@ forward, captures the logits and labels the loss sees (system streams only, as e
 
     FACTOR_MODEL_DIR=<run>/best_model $FACTOR_PYTHON scripts/analysis/teacher_forced_check.py --rows-dir $WS/finetune/overfit8 --split train
 Inside the container, from the repo root. One model load; fast (one forward per row).
+
+Unseen words (does the model copy at all, or only recall trained words?):
+
+    FACTOR_MODEL_DIR=<run>/best_model $FACTOR_PYTHON scripts/analysis/teacher_forced_check.py --rows-dir $WS/finetune/<name> \
+        --split validation --narrative orig none swap
+
+--narrative: the replier's narrative contains the word ("... repeat the word 'X'"), so a right word under `orig` may be read from
+the prompt, not heard in the request. `none` replaces the word by "a word" (the audio request is the only source); `swap` puts the next
+row's word in the narrative (audio and prompt disagree: which one does the reply follow?). Per run: exact reply match, reply word
+(last word) accuracy, and for the misses: how often the predicted word is a training word, the narrative's word, or neither.
 """
 import argparse
 import logging
 import os
+import re
 import sys
+import tempfile
 from types import SimpleNamespace
 
 _REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -28,28 +40,59 @@ from datasets import load_dataset  # noqa: E402
 from special_tokens import TEXT_STREAM_TOKENS  # noqa: E402
 
 
+def with_narrative(rows_dir, mode, tmp):
+    """A copy of rows_dir whose narratives mention no word (none) or the next validation/train row's word (swap); returns (dir, narrative word per row)."""
+    out = os.path.join(tmp, mode)
+    os.makedirs(out, exist_ok=True)
+    words = {}
+    for split in ("train", "validation"):
+        if not os.path.exists(os.path.join(rows_dir, f"{split}.parquet")):
+            continue
+        ds = load_dataset(rows_dir, split=split)
+        names = ds["file_name"]
+        other = {w: names[(i + 1) % len(names)] for i, w in enumerate(names)}
+        def edit(ex):
+            repl = "the word 'WORD'" if mode == "swap" else "a word"
+            for col in ("new_narrative_s1", "new_narrative_s2"):
+                ex[col] = re.sub(r"the word '[^']*'", repl.replace("WORD", other[ex["file_name"]]), ex[col])
+            return ex
+        ds.map(edit).to_parquet(os.path.join(out, f"{split}.parquet"))
+        words[split] = [other[w] if mode == "swap" else None for w in names]
+    return out, words
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--rows-dir", required=True)
     ap.add_argument("--split", default="train", choices=["train", "validation"])
     ap.add_argument("--system-speaker", type=int, default=1, help="as in finetune_rows.sh")
     ap.add_argument("--limit", type=int)
+    ap.add_argument("--narrative", nargs="+", default=["orig"], choices=["orig", "none", "swap"], help="narrative variants to run (one model load)")
     args = ap.parse_args()
 
-    from data import load_data
     from inference_example import load_model
 
     model, tokenizer = load_model()   # FACTOR_MODEL_DIR or the released checkpoint; eval mode, so the loss scores the system streams only
+    train_words = set(load_dataset(args.rows_dir, split="train")["file_name"])
+    with tempfile.TemporaryDirectory() as tmp:
+        for mode in args.narrative:
+            rows_dir, narr = (args.rows_dir, {}) if mode == "orig" else with_narrative(args.rows_dir, mode, tmp)
+            print(f"\n######## narrative: {mode}  split: {args.split}")
+            _run(model, tokenizer, rows_dir, args, narr.get(args.split), train_words)
+
+
+def _run(model, tokenizer, rows_dir, args, narr_words, train_words):
+    from data import load_data
     dargs = SimpleNamespace(
         model=SimpleNamespace(max_length=2048, num_dsus=4, text_stream=True, multi_text_stream=False),
-        data=SimpleNamespace(speech_path=args.rows_dir, remove_start_silence=False, n_delay_audio_stream=2, n_delay_text_stream=0,
+        data=SimpleNamespace(speech_path=rows_dir, remove_start_silence=False, n_delay_audio_stream=2, n_delay_text_stream=0,
                              word_alignment=True, add_bc_token=True, add_interrupt_token=True, add_counting_tokens=False,
                              use_system_narrative=True, system_speaker=args.system_speaker, debug=False, train_on_subset=None,
                              preprocessing_num_workers=1),
         train=SimpleNamespace(train_batch_size=1, eval_batch_size=1, gradient_accumulation_steps=1))
     train, val, collator = load_data(dargs.model, dargs.data, dargs.train, model.audio_delay_id, logging.getLogger("tf"), tokenizer)
     data = train if args.split == "train" else val
-    names = load_dataset(args.rows_dir, split=args.split)["file_name"]
+    names = load_dataset(rows_dir, split=args.split)["file_name"]
     if len(names) != len(data):
         print(f"warning: {len(names)} rows but {len(data)} examples (some skipped): names may not line up")
     pad, eos = model.pad_token_id, model.audio_eos_id
@@ -62,7 +105,7 @@ def main():
         out = orig_get(*a, **k)
         cap["dsu_labels"], cap["ts_labels"] = out[2], out[3]
         return out
-    model.get_input_embeds_and_labels = get_wrapped
+    model.get_input_embeds_and_labels = get_wrapped   # restored at the end of _run (one model, several runs)
     orig_ce = F.cross_entropy
     def ce_wrapped(logits, target, *a, **k):
         cap.setdefault("logits", []).append(logits.detach())
@@ -70,6 +113,8 @@ def main():
 
     print(f"{'word':<12}{'text ok':>8}  {'target words':<24}{'predicted words':<30}{'audio full':>11}{'head acc':>10}{'silent acc':>11}{'early EOS':>10}")
     tot = dict(tw=0, tc=0, af=0, an=0, sf=0, sn=0, ee=0)
+    n_rows = exact = word_ok = 0
+    miss = dict(train_word=0, narrative_word=0, other=0)
     for i in range(len(data) if not args.limit else min(args.limit, len(data))):
         batch = collator([dict(data[i])])
         batch = {k: (v.to(model.device) if torch.is_tensor(v) else v) for k, v in batch.items()}
@@ -106,10 +151,26 @@ def main():
         prd = tokenizer.decode([int(pred_t[j]) for j in pos]).strip()
         name = names[i] if i < len(names) else str(i)
         print(f"{name:<12}{f'{tc}/{len(pos)}':>8}  {tgt:<24.24}{prd:<30.30}{f'{af}/{an}':>11}{head:>10.2f}{f'{sf}/{sn}':>11}{early:>10}")
+        norm = lambda t: re.sub(r"[^a-z' ]", "", t.lower()).split()
+        tw, pw = norm(tgt), norm(prd)
+        n_rows += 1
+        exact += tw == pw
+        if tw and pw and tw[-1] == pw[-1]:
+            word_ok += 1
+        elif pw:
+            if narr_words and narr_words[i] == pw[-1]:
+                miss["narrative_word"] += 1
+            elif pw[-1] in train_words:
+                miss["train_word"] += 1
+            else:
+                miss["other"] += 1
         for k, v in dict(tw=len(pos), tc=tc, af=af, an=an, sf=sf, sn=sn, ee=early).items():
             tot[k] += v
     print(f"\nTOTAL word tokens {tot['tc']}/{tot['tw']}; speaking frames fully right {tot['af']}/{tot['an']}; "
           f"silent frames fully right {tot['sf']}/{tot['sn']}; early EOS predictions {tot['ee']}")
+    model.get_input_embeds_and_labels = orig_get
+    print(f"REPLY exact {exact}/{n_rows}; reply word (last word) right {word_ok}/{n_rows}; "
+          f"wrong word was: a training word {miss['train_word']}, the narrative's word {miss['narrative_word']}, other {miss['other']}")
 
 
 if __name__ == "__main__":
