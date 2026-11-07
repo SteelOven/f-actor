@@ -19,6 +19,7 @@ WS=${WS_DIR:-/workspace/ws}
 N=${N:-50}; VAL=${VAL:-0.2}; STEPS=${STEPS:-20}; LR=${LR:-1e-5}; TAIL=${TAIL:-0.3}; NAME=${NAME:-smoke40}
 TAG=${TAG:-$NAME}               # eval/probe output names (confs/rows_test_<TAG>), so a rerun does not overwrite
 SPLIT=${SPLIT:-validation}      # eval words: validation (unseen) or train (the overfit test)
+SILENCE1=${SILENCE1:-}           # 1: speaker 1 (Tom) is silent after the prefix, as in the training rows (opt-in)
 PROMPT=${PROMPT:-default}       # default | training: narrative written as in training ("- <narrative>"), see inference_example.prepare_prompt
 WHO=${WHO:-"baseline tuned"}    # which models eval generates with
 REQ=$WS/checks/p6_full_request_s0_ok
@@ -43,7 +44,7 @@ stage_eval() {
   for who in $WHO; do
     rm -rf "$conf/$who"; mkdir -p "$out/$who"
     $PY scripts/analysis/make_rows_test_configs.py --rows-dir "$WS/$DATA" --request-dir "$REQ" --timings "$WS/$DATA.timings.json" \
-        --out-dir "$conf/$who" --output-dir "$out/$who" --split "$SPLIT" --tail-s "$TAIL" --lookahead-s "${LOOKAHEAD:-0}" --prompt-format "${PROMPT:-default}"
+        --out-dir "$conf/$who" --output-dir "$out/$who" --split "$SPLIT" --tail-s "$TAIL" --lookahead-s "${LOOKAHEAD:-0}" --prompt-format "${PROMPT:-default}" ${SILENCE1:+--silence-speaker1}
   done
   [[ " $WHO " == *" baseline "* ]] && $PY training/run_oov_batch.py --configs-glob "$conf/baseline/*.json"
   [[ " $WHO " == *" tuned "* ]] && FACTOR_MODEL_DIR=$WS/finetune/runs/$NAME/best_model $PY training/run_oov_batch.py --configs-glob "$conf/tuned/*.json"

@@ -245,6 +245,7 @@ def generate_dialogue(model, tokenizer, nanocodec_model, config):
             n_delay_audio_stream=2,
             talk_to_itself=True,
             spk_emb=example["spk_embeds"],
+            silence_speaker1=bool(config.get("silence_speaker1", False)),
         )
 
     generated_dsu_ids, generated_text_ids = generated_ids
