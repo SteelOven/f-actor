@@ -5,6 +5,8 @@
 # inference, so training on it is wasted. Without the flag, training scores both streams while eval scores only the reply.
 #
 #   bash scripts/train/finetune_rows.sh <run_name> [max_steps=20] [data=finetune/p7_short_ok] [lr=1e-5]
+#   KEEP_FINAL=1 ...   no early stopping, best_model/ = the last weights (eval loss picks an under-trained checkpoint here: it is dominated by the audio
+#                      codes of a word the model cannot copy yet, so it rises while the model learns the task; judge checkpoints with teacher_forced_check.py)
 #
 # Run it inside the container (cluster_shell.sh / cluster_run.sh): $FACTOR_PYTHON and /workspace/ws are set there. <data> is a dir below
 # the workspace holding train.parquet + validation.parquet (what tts_rows.rows writes). Output: <ws>/finetune/runs/<run_name>.
@@ -43,4 +45,5 @@ ${FACTOR_PYTHON:-python3} training/finetune.py \
   --gradient_accumulation_steps 4 \
   --eval_steps "$EVAL" \
   --save_steps "$EVAL" \
-  --save_total_limit 2
+  --save_total_limit 2 \
+  ${KEEP_FINAL:+--keep_final_model --early_stopping_patience 0}

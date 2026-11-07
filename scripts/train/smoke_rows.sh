@@ -24,11 +24,12 @@ SPLIT=${SPLIT:-validation}      # eval words: validation (unseen) or train (the 
 SILENCE1=${SILENCE1:-}           # 1: speaker 1 (Tom) is silent after the prefix, as in the training rows (opt-in)
 NARR_REPLIER=${NARR_REPLIER:-}  # build: narrative of the replier (the model's role); default names the word, e.g. "{partner} asks you to listen carefully and repeat a word. You repeat it." hides it
 NARR_REQUESTER=${NARR_REQUESTER:-}  # build: narrative of the requester; same placeholders {partner} {word}
+KEEP_FINAL=${KEEP_FINAL:-}      # train: 1 = no early stopping, best_model/ holds the final weights (see finetune_rows.sh)
 TFNARR=${TFNARR:-}              # tf: narrative variants, default "orig none swap"; "orig none" when the narrative has no word
 PROMPT=${PROMPT:-default}       # default | training: narrative written as in training ("- <narrative>"), see inference_example.prepare_prompt
 WHO=${WHO:-"baseline tuned"}    # which models eval generates with
-REQ=$WS/checks/p6_full_request_s0_ok
-REPLY=$WS/checks/p7_reply_short_s0_ok
+REQ=${REQ:-$WS/checks/p6_full_request_s0_ok}       # merged clip dirs of the scaled set: REQ=$WS/checks/p8_request_ok REPLY=$WS/checks/p8_reply_ok
+REPLY=${REPLY:-$WS/checks/p7_reply_short_s0_ok}
 DATA=finetune/$NAME
 GATE=/workspace/oov-shared/wordlists/lists/prefix_gate_p4.csv
 PY=${FACTOR_PYTHON:-python3}

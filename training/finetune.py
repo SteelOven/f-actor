@@ -77,7 +77,7 @@ def train(args, logger):
         max_grad_norm=training_args.gradient_clipping,
         weight_decay=training_args.weight_decay,
         save_total_limit=training_args.save_total_limit,
-        load_best_model_at_end=True,
+        load_best_model_at_end=not training_args.keep_final_model,
         metric_for_best_model="eval_loss",
         greater_is_better=False,
         learning_rate=training_args.learning_rate,
@@ -118,17 +118,19 @@ def train(args, logger):
         eval_dataset=eval_dataset,
         processing_class=tokenizer,
         data_collator=data_collator,
-        callbacks=[
-            EarlyStoppingCallback(
-                early_stopping_patience=training_args.early_stopping_patience
-            ),
-            EvalLossLoggerCallback(),
-        ],
+        callbacks=(
+            [EarlyStoppingCallback(early_stopping_patience=training_args.early_stopping_patience)]
+            if training_args.early_stopping_patience > 0
+            else []
+        )
+        + [EvalLossLoggerCallback()],
     )
 
     # Train
     trainer.train()
     logging.info(f"Best checkpoint: {trainer.state.best_model_checkpoint}")
+    if training_args.keep_final_model:
+        logging.info("keep_final_model: best_model/ holds the final weights, not the best checkpoint")
     trainer.save_model(os.path.join(training_args.output_dir, "best_model"))
     tokenizer.save_pretrained(os.path.join(training_args.output_dir, "best_model"))
 
