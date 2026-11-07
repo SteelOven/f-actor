@@ -22,6 +22,9 @@ N=${N:-50}; VAL=${VAL:-0.2}; STEPS=${STEPS:-20}; LR=${LR:-1e-5}; TAIL=${TAIL:-0.
 TAG=${TAG:-$NAME}               # eval/probe output names (confs/rows_test_<TAG>), so a rerun does not overwrite
 SPLIT=${SPLIT:-validation}      # eval words: validation (unseen) or train (the overfit test)
 SILENCE1=${SILENCE1:-}           # 1: speaker 1 (Tom) is silent after the prefix, as in the training rows (opt-in)
+NARR_REPLIER=${NARR_REPLIER:-}  # build: narrative of the replier (the model's role); default names the word, e.g. "{partner} asks you to listen carefully and repeat a word. You repeat it." hides it
+NARR_REQUESTER=${NARR_REQUESTER:-}  # build: narrative of the requester; same placeholders {partner} {word}
+TFNARR=${TFNARR:-}              # tf: narrative variants, default "orig none swap"; "orig none" when the narrative has no word
 PROMPT=${PROMPT:-default}       # default | training: narrative written as in training ("- <narrative>"), see inference_example.prepare_prompt
 WHO=${WHO:-"baseline tuned"}    # which models eval generates with
 REQ=$WS/checks/p6_full_request_s0_ok
@@ -38,7 +41,8 @@ stage_align() {
 }
 stage_build() {
   $PY scripts/train/build_rows_dataset.py --request-dir "$REQ" --reply-dir "$REPLY" --exclude "$GATE" \
-      --limit "$N" --val-frac "$VAL" --out-dir "$WS/$DATA"
+      --limit "$N" --val-frac "$VAL" --out-dir "$WS/$DATA" \
+      ${NARR_REPLIER:+--narrative-replier "$NARR_REPLIER"} ${NARR_REQUESTER:+--narrative-requester "$NARR_REQUESTER"}
 }
 stage_train() { bash scripts/train/finetune_rows.sh "$NAME" "$STEPS" "$DATA" "$LR"; }
 stage_eval() {
@@ -76,7 +80,7 @@ stage_probe() {   # P(EOS) at the first generated frame per word, base and tuned
 stage_tf() {
   local md=$WS/finetune/runs/$NAME/best_model; [[ ${TFMODEL:-tuned} == baseline ]] && md=""
   FACTOR_MODEL_DIR=$md $PY scripts/analysis/teacher_forced_check.py --rows-dir "$WS/$DATA" --split "${TFSPLIT:-validation}" \
-      --narrative orig none swap 2>&1 | grep -v -i "warn" | grep -E "^(########|REPLY|TOTAL|[a-z]+ )" 
+      --narrative ${TFNARR:-orig none swap} 2>&1 | grep -v -i "warn" | grep -E "^(########|REPLY|TOTAL|[a-z]+ )" 
 }
 
 [[ $# -gt 0 ]] || { sed -n 2,14p "$0"; exit 1; }
