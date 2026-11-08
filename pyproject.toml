@@ -12,6 +12,9 @@ requires-python = ">=3.10"
 dependencies = [
     "transformers==4.53.3",
     "torch==2.8.0",
+    # NeMo and silero-vad pull torchaudio in unpinned; without this pin the lock picks 2.11.0 (a CUDA-13 build),
+    # which cannot load next to torch 2.8.0 (OSError: libcudart.so.13) and breaks every NeMo import.
+    "torchaudio==2.8.0",
     "dataset==2.0.0",
     "wandb==0.22.2",
     "sentencepiece==0.2.1",
@@ -64,12 +67,16 @@ eval = [
 # in LOCAL_SETUP.md instead of `uv sync`. macOS keeps the PyPI wheel (MPS).
 [tool.uv.sources]
 torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+torchaudio = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
 explicit = true
 
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
 
 [tool.setuptools.packages.find]
 exclude = ["assets*", "benchmark*", "docs", "build", "dist*", "playground*", "scripts*", "tests*"]
