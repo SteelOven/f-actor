@@ -14,6 +14,7 @@ class ModelArgs:
     audio_vocab_size: int = 4032
     use_speaker_embedding: bool = False
     calc_loss_on_c1_only: bool = False
+    word_loss_weight: float = 1.0  # >1: text-loss weight of real word tokens (training only; loss stays normalised by the summed weights)
     mask_prompt_loss: bool = False  # True: prompt tokens are inputs only, not text-loss targets
 
     def __post_init__(self):
