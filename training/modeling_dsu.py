@@ -19,6 +19,7 @@ class DSUModel(ModelInitializerLoader):
         self.multi_text_stream = config.multi_text_stream
         self.use_speaker_embedding = config.use_speaker_embedding
         self.calc_loss_on_c1_only = config.calc_loss_on_c1_only
+        self.mask_prompt_loss = getattr(config, "mask_prompt_loss", False)  # absent in older configs
 
         # vocab sizes for text and audio
         self.text_vocab_size = self.get_output_embeddings().weight.size(0)
@@ -316,6 +317,11 @@ class DSUModel(ModelInitializerLoader):
                     prompt_ids_expanded = prompt_ids_nopad.unsqueeze(0).expand(
                         text_stream_ids_b.shape[0], -1
                     )
+
+                    if self.mask_prompt_loss:  # pad label = masked in the loss; prompt stays an input
+                        prompt_ids_expanded = torch.full_like(
+                            prompt_ids_expanded, self.pad_token_id
+                        )
 
                     labels_all_text_streams.append(
                         torch.cat(
