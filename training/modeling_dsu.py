@@ -1,12 +1,17 @@
+from collections.abc import Sequence
+
 import torch
 import torch.nn.functional as F
 from load_dsu_model import ModelInitializerLoader
 from torch.nn.utils.rnn import pad_sequence
-from transformers import DynamicCache, LlamaForCausalLM
+from transformers import DynamicCache, LlamaForCausalLM, PretrainedConfig
 
 
 class DSUModel(ModelInitializerLoader):
-    def __init__(self, config):
+    def __init__(
+        self,
+        config: PretrainedConfig,  # LlamaConfig plus num_dsus, text_stream, multi_text_stream, audio_vocab_size, use_speaker_embedding, calc_loss_on_c1_only
+    ) -> None:
         super().__init__(config)
 
         if not hasattr(config, "num_dsus"):
@@ -60,18 +65,18 @@ class DSUModel(ModelInitializerLoader):
 
     def forward(
         self,
-        input_ids=None,
-        attention_mask=None,
-        labels=None,
-        dsu_ids=None,
-        text_stream_ids=None,
-        spk_emb=None,
-        inference=False,
-        need_loss=True,
-        past_key_values=None,
-        use_cache=None,
+        input_ids: torch.LongTensor | None = None,  # [B, P] prompt, padded
+        attention_mask: torch.LongTensor | None = None,  # [B, P] 1 = real prompt token
+        labels: torch.LongTensor | None = None,  # ignored when num_dsus >= 1: labels are rebuilt from dsu_ids / text_stream_ids
+        dsu_ids: torch.LongTensor | None = None,  # [B, 8, T] audio codes, 8 heads (0-3 system, 4-7 user)
+        text_stream_ids: torch.LongTensor | None = None,  # [B, 1, T] text stream(s)
+        spk_emb: Sequence[Sequence[float]] | None = None,  # B vectors of 192 floats
+        inference: bool = False,  # True: no EOS column appended, prompt left-padded
+        need_loss: bool = True,
+        past_key_values: DynamicCache | None = None,  # generate(): KV cache; only the last frame is fed once it is filled
+        use_cache: bool | None = None,
         **kwargs,
-    ):
+    ) -> dict[str, torch.Tensor | DynamicCache | None]:  # loss, c1_text_loss, c1_dsu_loss, logits [B, L, 8, V], ts_logits [B, N, 1, V], past_key_values
 
         if self.num_dsus < 1:
             return super().forward(
@@ -224,7 +229,11 @@ class DSUModel(ModelInitializerLoader):
             "past_key_values": past_key_values,
         }
 
-    def check_vocab_bounds(self, prompt_ids, dsu_ids):
+    def check_vocab_bounds(
+        self,
+        prompt_ids: torch.LongTensor,  # [B, P]
+        dsu_ids: torch.LongTensor | None,  # [B, 8, T] (not checked)
+    ) -> None:  # raises ValueError on out-of-vocabulary prompt ids
         if (prompt_ids >= self.text_vocab_size).any():
             raise ValueError("Prompt IDs contain out-of-vocabulary tokens")
 
@@ -233,13 +242,18 @@ class DSUModel(ModelInitializerLoader):
 
     def get_input_embeds_and_labels(
         self,
-        prompt_ids,
-        prompt_att_mask,
-        dsu_ids,
-        text_stream_ids=None,
-        spk_emb=None,
-        inference=False,
-    ):
+        prompt_ids: torch.LongTensor,  # [B, P] prompt, padded
+        prompt_att_mask: torch.LongTensor,  # [B, P] 1 = real prompt token
+        dsu_ids: torch.LongTensor | None,  # [B, 8, T] audio codes (None: no audio)
+        text_stream_ids: torch.LongTensor | None = None,  # [B, 1, T] text stream(s)
+        spk_emb: Sequence[Sequence[float]] | None = None,  # B vectors of 192 floats (use_speaker_embedding)
+        inference: bool = False,
+    ) -> tuple[
+        torch.Tensor,  # inputs_embeds [B, N, H], N = (1 spk if use_speaker_embedding) + P_real + T (+1 EOS column unless inference), right-padded
+        torch.LongTensor,  # attention_mask [B, N]
+        torch.LongTensor,  # audio labels [B, 8, T] (+1 EOS column unless inference)
+        torch.LongTensor | None,  # text labels: text_stream [B, 1, N] (spk + prompt + frames); multi_text_stream [B, 2, T (+1)]; None without text
+    ]:
 
         self.check_vocab_bounds(prompt_ids, dsu_ids)
         create_eos_token = lambda token_id, ref_tensor: torch.full(
@@ -393,13 +407,18 @@ class DSUModel(ModelInitializerLoader):
 
     def get_input_embeds_and_labels_padded(
         self,
-        prompt_ids,
-        prompt_att_mask,
-        dsu_ids,
-        text_stream_ids=None,
-        spk_emb=None,
-        inference=False,
-    ):
+        prompt_ids: torch.LongTensor,  # [B, P] prompt, padded
+        prompt_att_mask: torch.LongTensor,  # [B, P] 1 = real prompt token
+        dsu_ids: torch.LongTensor | None,  # [B, 8, T] audio codes so far (None: no audio)
+        text_stream_ids: torch.LongTensor | None = None,  # [B, 1, T] text stream(s) so far
+        spk_emb: Sequence[Sequence[float]] | None = None,  # B vectors of 192 floats (use_speaker_embedding)
+        inference: bool = False,
+    ) -> tuple[
+        torch.Tensor,  # inputs_embeds [B, N, H]: [left-padded (spk + prompt) | right-padded frames]
+        torch.LongTensor,  # attention_mask [B, N]
+        torch.LongTensor,  # audio labels [B, 8, T] (+1 EOS column unless inference)
+        torch.LongTensor | None,  # text labels [B, num_text_streams, N] (prompt part left-padded, frame part right-padded)
+    ]:
         self.check_vocab_bounds(prompt_ids, dsu_ids)
         create_eos_token = lambda token_id, ref_tensor: torch.full(
             (ref_tensor.size(1), 1),  # batch_size x 1

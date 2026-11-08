@@ -1,7 +1,10 @@
+import logging
+from typing import TYPE_CHECKING
+
 import numpy as np
 import torch
 from data_collator_dsu import DSUDataCollator
-from datasets import DatasetDict, load_dataset
+from datasets import Dataset, DatasetDict, load_dataset
 from dialogue_creation.get_prompt import build_prompt
 from dialogue_creation.get_text_stream import adapt_to_text_stream
 from dialogue_creation.utils import (
@@ -13,15 +16,26 @@ from dialogue_creation.utils import (
 )
 
 
-def get_world_size():
+if TYPE_CHECKING:  # annotations only, no runtime import
+    from arguments.arguments import DataArgs, ModelArgs, TrainingArgs
+    from transformers import PreTrainedTokenizerBase
+
+
+def get_world_size() -> int:
     if torch.distributed.is_available() and torch.distributed.is_initialized():
         return torch.distributed.get_world_size()
     return 1
 
 
 def load_speech_data(
-    model_args, data_args, training_args, audio_delay_id, logger, tokenizer, inference=False
-):
+    model_args: "ModelArgs",  # reads: max_length, num_dsus, text_stream, multi_text_stream
+    data_args: "DataArgs",  # reads: speech_path, system_speaker, n_delay_*_stream, word_alignment, add_*_token, ...
+    training_args: "TrainingArgs",  # reads: train_batch_size, eval_batch_size, gradient_accumulation_steps
+    audio_delay_id: int,  # id of the delay token (= audio_vocab_size, 4032)
+    logger: logging.Logger,
+    tokenizer: "PreTrainedTokenizerBase",
+    inference: bool = False,  # True: only the test split, raw prompts/references for generation
+) -> tuple[Dataset, Dataset, DSUDataCollator] | Dataset:  # train mode: (train, validation, collator); inference: test split
 
     # get arguments
     max_length = model_args.max_length
@@ -218,8 +232,14 @@ def load_speech_data(
 
 
 def load_data(
-    model_args, data_args, training_args, audio_delay_id, logger, tokenizer, inference=False
-):
+    model_args: "ModelArgs",  # num_dsus must be >= 1; see load_speech_data for the fields read
+    data_args: "DataArgs",
+    training_args: "TrainingArgs",
+    audio_delay_id: int,  # id of the delay token (= audio_vocab_size, 4032)
+    logger: logging.Logger,
+    tokenizer: "PreTrainedTokenizerBase",
+    inference: bool = False,  # True: only the test split, raw prompts/references for generation
+) -> tuple[Dataset, Dataset, DSUDataCollator] | Dataset:  # train mode: (train, validation, collator); inference: test split
     logger.info(f"Loading dataset from {data_args.speech_path}.")
     num_dsus = model_args.num_dsus
     if num_dsus < 1:
