@@ -94,6 +94,8 @@ def build_row(
     duration = c1.shape[1] * SAMPLES_PER_FRAME / CODEC_SR
     if utterances[-1]["end_time"] > duration + SAMPLES_PER_FRAME / CODEC_SR:  # codec drops a partial last frame; allow one frame of overshoot (end_time is set to duration below)
         raise ValueError(f"last word ends at {utterances[-1]['end_time']:.2f} s, audio is {duration:.2f} s")
+    last = utterances[-1]["words"][-1]
+    last["dur"] = min(last["dur"], duration - last["start"])  # clamp the last word into the audio (validate_word_timestamps needs word end <= utterance end)
     utterances[-1]["end_time"] = duration
 
     if spk_emb is None:
