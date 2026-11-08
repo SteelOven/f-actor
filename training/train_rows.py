@@ -92,7 +92,7 @@ def build_row(
     if max(c1.max(), c2.max()) >= CODEC_CODEBOOK_SIZE:
         raise ValueError(f"codes must be < {CODEC_CODEBOOK_SIZE}")
     duration = c1.shape[1] * SAMPLES_PER_FRAME / CODEC_SR
-    if utterances[-1]["end_time"] > duration:
+    if utterances[-1]["end_time"] > duration + SAMPLES_PER_FRAME / CODEC_SR:  # codec drops a partial last frame; allow one frame of overshoot (end_time is set to duration below)
         raise ValueError(f"last word ends at {utterances[-1]['end_time']:.2f} s, audio is {duration:.2f} s")
     utterances[-1]["end_time"] = duration
 
