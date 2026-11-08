@@ -64,7 +64,10 @@ def load_audio(wav_path, gain_db=0.0):
     return (audio * gain).astype(np.float32), 20 * np.log10(gain) if gain > 0 else float("-inf")
 
 
-def encode(codec, audio):
+def encode(
+    codec: torch.nn.Module,  # NanoCodec (4 codebooks, 12.5 fps)
+    audio: np.ndarray,  # float32 [n_samples] at CODEC_SR, mono
+) -> np.ndarray:  # int64 [4, T]
     """[n_samples] float -> [4, T] int64 codes."""
     device = next(codec.parameters()).device
     a = torch.from_numpy(audio).float().unsqueeze(0).to(device)

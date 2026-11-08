@@ -9,7 +9,9 @@ import torch
 from nemo.collections.tts.models import AudioCodecModel
 
 
-def load_model(num_codebooks=8):
+def load_model(
+    num_codebooks: int = 8,  # 8: low-frame-rate-speech-codec-22khz; 4: nemo-nano-codec-22khz-0.6kbps-12.5fps (F-Actor's)
+) -> AudioCodecModel:  # in eval mode
     if num_codebooks == 8:
         model = AudioCodecModel.from_pretrained(
             "nvidia/low-frame-rate-speech-codec-22khz"

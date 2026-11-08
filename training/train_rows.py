@@ -22,6 +22,7 @@ import json
 import os
 
 import numpy as np
+import torch
 from prefix import CODEC_SR, CODEC_CODEBOOK_SIZE, SAMPLES_PER_FRAME, encode
 
 SPEAKER_EMBEDDINGS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "example_speakers",
@@ -32,21 +33,35 @@ _FILLER = {"file_name": "", "behaviors": [""], "num_turns": 0, "tts_speaker_ids"
            "statistics": {"filler": 0}}
 
 
-def speaker_embedding(name, path=SPEAKER_EMBEDDINGS):
+def speaker_embedding(
+    name: str,  # speaker name, case-insensitive (Rebeka, Gweneth, Brian, Tom)
+    path: str = SPEAKER_EMBEDDINGS,  # json: lowercase name -> 192 floats
+) -> list[float]:  # 192-dim ECAPA vector
     """192-dim ECAPA vector of a known speaker (Rebeka, Gweneth, Brian, Tom), as inference_example uses."""
     with open(path) as f:
         return json.load(f)[name.lower()]
 
 
-def _load(wav_path):
+def _load(
+    wav_path: str | os.PathLike,
+) -> np.ndarray:  # float32 [n_samples], mono, resampled to CODEC_SR
     import librosa
 
     audio, _ = librosa.load(str(wav_path), sr=CODEC_SR, mono=True)
     return audio.astype(np.float32)
 
 
-def build_row(turns, codec, *, speakers, narrative, spk_emb=None, new_narrative_s1=None, new_narrative_s2=None,
-              file_name=""):
+def build_row(
+    turns: list[dict],  # [{"speaker": 0 | 1, "wav": path, "words": [{"word", "start", "dur"}]}], in dialogue order
+    codec: torch.nn.Module,  # NanoCodec; encode() turns each channel's samples into [4, T] codes
+    *,
+    speakers: list[str],  # [name1, name2], appear in the prompt
+    narrative: str,  # shared narrative (the two role narratives below override it per speaker)
+    spk_emb: list[list[float]] | None = None,  # [emb1, emb2], 192-dim each; None: looked up by name
+    new_narrative_s1: str | None = None,  # narrative as speaker 1 sees it (None: narrative)
+    new_narrative_s2: str | None = None,  # narrative as speaker 2 sees it (None: narrative)
+    file_name: str = "",
+) -> dict:  # one raw row: the columns data.py reads (dsu_c1_path/dsu_c2_path [4, T] as lists, utterances, spk_emb_c1/c2, ...)
     """turns -> one raw row (dict).
 
     turns:    [{"speaker": 0 | 1, "wav": path, "words": [{"word", "start", "dur"}] (seconds, relative to the clip)}]
@@ -91,7 +106,12 @@ def build_row(turns, codec, *, speakers, narrative, spk_emb=None, new_narrative_
             "spk_emb_c1": list(spk_emb[0]), "spk_emb_c2": list(spk_emb[1])}
 
 
-def write_dataset(rows, out_dir, val_frac=0.1, seed=0):
+def write_dataset(
+    rows: list[dict],  # rows from build_row
+    out_dir: str,  # gets train.parquet and validation.parquet
+    val_frac: float = 0.1,  # fraction of rows for validation (at least 1 row)
+    seed: int = 0,  # seed of the train/validation shuffle
+) -> tuple[int, int]:  # (n_train, n_validation)
     """rows -> out_dir/train.parquet and validation.parquet, which load_dataset(out_dir) reads as the two splits
     data.py needs. Each split gets at least one row (so at least 2 rows are required). Note data.py further trims
     each split to a multiple of batch size x world size x grad accumulation."""

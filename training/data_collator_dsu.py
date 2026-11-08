@@ -1,9 +1,14 @@
+from typing import Any
+
 import torch
 from transformers import DataCollatorForLanguageModeling
 
 
 class DSUDataCollator(DataCollatorForLanguageModeling):
-    def __call__(self, features):
+    def __call__(
+        self,
+        features: list[dict[str, Any]],  # one dict per sample, as data.py's map() produced
+    ) -> dict[str, Any]:  # batch: input_ids/attention_mask [B, P], dsu_ids [B, 8, T], text_stream_ids [B, 1, T], spk_emb list
         """
         A custom data collator that extends Hugging Face's DataCollatorForLanguageModeling
         to handle additional hierarchical DSU (Discrete Symbol Unit) token sequences and optional

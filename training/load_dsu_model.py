@@ -76,7 +76,7 @@ class ModelInitializerLoader:
         # No checkpoint found
         return False
 
-    def init_dsu_heads(self):
+    def init_dsu_heads(self) -> None:  # sets num_dsu_heads = 2 * num_dsus and dsu_head = Linear(H, audio_vocab_size * num_dsu_heads)
         """Create DSU heads"""
         if self.num_dsus < 1:
             return
@@ -106,7 +106,7 @@ class ModelInitializerLoader:
             torch.nn.init.xavier_uniform_(head.weight)
             torch.nn.init.zeros_(head.bias)
 
-    def init_audio_embeds(self):
+    def init_audio_embeds(self) -> None:  # sets audio_embeds = ModuleList of num_dsu_heads Embedding(audio_vocab_size, H); needs init_dsu_heads first
         """Initialize Audio embedding layers"""
         if self.num_dsus < 1:
             return
@@ -128,7 +128,10 @@ class ModelInitializerLoader:
         for emb in self.audio_embeds:
             torch.nn.init.xavier_uniform_(emb.weight)
 
-    def init_speaker_embed_proj(self, spk_emb_dim):
+    def init_speaker_embed_proj(
+        self,
+        spk_emb_dim: int,  # size of the speaker vector (192, ECAPA)
+    ) -> None:  # sets speaker_embed_proj = Linear(spk_emb_dim, H)
         """
         Initialize a linear projection from speaker embedding dimension to hidden size.
         """
