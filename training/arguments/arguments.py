@@ -14,6 +14,7 @@ class ModelArgs:
     audio_vocab_size: int = 4032
     use_speaker_embedding: bool = False
     calc_loss_on_c1_only: bool = False
+    mask_prompt_loss: bool = False  # True: prompt tokens are inputs only, not text-loss targets
 
     def __post_init__(self):
         if self.text_stream and self.multi_text_stream:
