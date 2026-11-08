@@ -1,5 +1,7 @@
 import os
 
+import torch
+
 from device_utils import get_device
 from huggingface_hub import snapshot_download
 from modeling_dsu import DSULlama
@@ -64,6 +66,7 @@ def load_model(model_args, grad_acc_steps=1, logger=None, inference=False):
     config.use_speaker_embedding = model_args.use_speaker_embedding
     config.calc_loss_on_c1_only = model_args.calc_loss_on_c1_only
     config.mask_prompt_loss = model_args.mask_prompt_loss
+    config.word_loss_weight = model_args.word_loss_weight
 
     # load model (if num_dsu < 1, this will be the normal model)
     model = model_cls.from_pretrained(
@@ -101,6 +104,11 @@ def load_model(model_args, grad_acc_steps=1, logger=None, inference=False):
         )
         assert (
             model.get_input_embeddings().weight is model.get_output_embeddings().weight
+        )
+
+    if model_args.text_stream or model_args.multi_text_stream:  # ids of the stream's special tokens; every other text label is a word token
+        model.text_special_ids = torch.tensor(
+            tokenizer.convert_tokens_to_ids(TEXT_STREAM_TOKENS), device=model.device
         )
 
     if model_args.use_speaker_embedding:

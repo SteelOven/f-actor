@@ -20,6 +20,8 @@ class DSUModel(ModelInitializerLoader):
         self.use_speaker_embedding = config.use_speaker_embedding
         self.calc_loss_on_c1_only = config.calc_loss_on_c1_only
         self.mask_prompt_loss = getattr(config, "mask_prompt_loss", False)  # absent in older configs
+        self.word_loss_weight = getattr(config, "word_loss_weight", 1.0)
+        self.text_special_ids = None  # set by load_model: ids of TEXT_STREAM_TOKENS
 
         # vocab sizes for text and audio
         self.text_vocab_size = self.get_output_embeddings().weight.size(0)
@@ -117,6 +119,7 @@ class DSUModel(ModelInitializerLoader):
         hidden_states = outputs.hidden_states[-1]  # [B, L, Hdim]
         B, L_with_text, _ = hidden_states.shape
 
+        prompt_lens = None  # [B] spk + prompt positions; only known on the full (non-cached) pass
         if use_cache and len(past_key_values) > 0:
             audio_hidden_padded = hidden_states[:, -1:, :]
         else:
@@ -178,6 +181,19 @@ class DSUModel(ModelInitializerLoader):
                 logits = logits.permute(0, 2, 1, 3)  # [B, L, H, V] -> [B, H, L, V]
 
                 weights = mask.float()
+                if (
+                    loss_type == "text"
+                    and self.model.training
+                    and self.word_loss_weight != 1.0
+                ):
+                    if prompt_lens is None or self.text_special_ids is None:
+                        raise ValueError("word_loss_weight needs a full pass and text_special_ids (set by load_model)")
+                    # label i (shifted) is frame token iff i >= prompt_lens - 1; a word token is a frame label that is no stream special
+                    in_frames = torch.arange(labels_shifted.shape[-1], device=labels_shifted.device)[None, None, :] >= (
+                        prompt_lens[:, None, None] - 1
+                    )
+                    is_word = mask & in_frames & ~torch.isin(labels_shifted, self.text_special_ids)
+                    weights = weights * torch.where(is_word, self.word_loss_weight, 1.0)
                 target = torch.where(mask, labels_shifted, torch.zeros_like(labels_shifted))
                 per_token_loss = F.cross_entropy(
                     logits.reshape(-1, logits.shape[-1]),
@@ -185,7 +201,7 @@ class DSUModel(ModelInitializerLoader):
                     reduction="none",
                 ).view_as(target)
 
-                per_conversation_loss = (per_token_loss * weights).sum(dim=[1, 2]) / weights.sum(dim=[1, 2]).clamp(min=1)
+                per_conversation_loss = (per_token_loss * weights).sum(dim=[1, 2]) / weights.sum(dim=[1, 2]).clamp(min=1e-8)
                 loss = per_conversation_loss.mean()
 
                 total_loss += loss
