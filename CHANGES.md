@@ -1,7 +1,8 @@
 # What this fork changes (relative to MaikeZuefle/f-actor)
 
-Everything here is opt-in: with default flags the model code behaves like upstream's (the fork's base is upstream commit `2efa25d`; upstream
-has moved on, see "Upstream sync"). Branches are stacked: each contains the one before.
+The model-code changes are meant to be opt-in (default flags leave training/generation as upstream); the exceptions are the local-inference
+changes in `main` (device selection, fp16 load on CUDA). Not verified by a numerical comparison against upstream. The fork's base is upstream
+commit `2efa25d`; upstream has moved on, see "Upstream sync". Branches are stacked: each contains the one before.
 
 | Branch | Adds | Commits |
 |---|---|---|
