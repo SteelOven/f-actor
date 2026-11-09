@@ -2,7 +2,7 @@
 # Smoke test of the request -> reply fine-tune, inside the container (interactive: ~/personaplex/cluster/cluster_shell.sh, GPU node).
 # Stages (run one, several or all; a finished stage is cheap to rerun):
 #   align   forced alignment of the reply clips (CPU, ~4 s per clip, needs $WS/align-venv; resumes, skips unalignable clips)
-#   build   N words -> rows (train/validation); the validation words are never trained on
+#   build   N words -> rows (train/validation); the validation words are never trained on (tts_rows.build_dataset: needs the tts_rows repo at $WS/tts_rows, or TTS_ROWS=<dir>)
 #   train   LoRA-free full fine-tune, few steps (finetune_rows.sh)
 #   probe   P(EOS) at the first frame per word, base and tuned, with and without prefix look-ahead (after eval)
 #   tf      teacher-forced check of the tuned model on the unseen (validation) words, narrative as trained / without the word / with another word
@@ -41,7 +41,7 @@ stage_align() {
   [[ -f $WS/checks/p7_reply_short_s0/alignment.jsonl ]] || { echo "error: align wrote no alignment.jsonl" >&2; exit 2; }
 }
 stage_build() {
-  $PY scripts/train/build_rows_dataset.py --request-dir "$REQ" --reply-dir "$REPLY" --exclude "$GATE" \
+  PYTHONPATH=${TTS_ROWS:-$WS/tts_rows}/src F_ACTOR=$PWD $PY -m tts_rows.build_dataset --request-dir "$REQ" --reply-dir "$REPLY" --exclude "$GATE" \
       --limit "$N" --val-frac "$VAL" --out-dir "$WS/$DATA" \
       ${NARR_REPLIER:+--narrative-replier "$NARR_REPLIER"} ${NARR_REQUESTER:+--narrative-requester "$NARR_REQUESTER"}
 }

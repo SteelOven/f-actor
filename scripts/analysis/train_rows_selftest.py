@@ -1,4 +1,4 @@
-"""Self-test for training/train_rows.py, with a stub codec (no model, runs in seconds).
+"""Self-test for tts_rows.training_rows (the tts_rows repo, a sibling of f-actor; $TTS_ROWS_SRC overrides), with a stub codec (no model, runs in seconds).
 
     python scripts/analysis/train_rows_selftest.py
 
@@ -17,6 +17,7 @@ from types import SimpleNamespace
 _REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(_REPO, "training"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.environ.get("TTS_ROWS_SRC", os.path.join(_REPO, "..", "tts_rows", "src")))
 
 import numpy as np  # noqa: E402
 import soundfile as sf  # noqa: E402
@@ -25,7 +26,7 @@ from dialogue_creation.utils import COLUMNS_TO_REMOVE  # noqa: E402
 from prefix import CODEC_SR, SAMPLES_PER_FRAME  # noqa: E402
 from prefix_selftest import ACTIVE, StubCodec, words, write_clip  # noqa: E402
 from special_tokens import SILENCE_PAD  # noqa: E402
-from train_rows import build_row, write_dataset  # noqa: E402
+from tts_rows.training_rows import build_row, write_dataset  # noqa: E402
 from transformers import AutoTokenizer  # noqa: E402
 
 FPS = CODEC_SR / SAMPLES_PER_FRAME
