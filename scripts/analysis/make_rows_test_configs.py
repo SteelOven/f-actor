@@ -4,7 +4,7 @@ One config per row of a split (default: validation = words the fine-tune never s
 prefix words are taken from the rows themselves, so the model is prompted exactly as in training: speaker 1 (the request
 speaker) starts, speaker 2 (the reply speaker, system_speaker=1 in training) does not, no backchannels or interruptions.
 By default the prefix is the request clip as it is; --tail-s N replaces its trailing silence by N seconds (a prefix that ends right
-after the last word makes the model emit EOS at the first generated frame, see docs/prefix_log.md).
+after the last word makes the model emit EOS at the first generated frame, see oov-shared/docs/experiments/prefix_log.md).
 
     python scripts/analysis/make_rows_test_configs.py --rows-dir $WS/finetune/p7_short_ok \\
         --request-dir $WS/checks/p6_full_request_s0_ok --timings $WS/finetune/p7_short_ok.timings.json \\

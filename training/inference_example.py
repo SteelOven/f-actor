@@ -121,7 +121,7 @@ def remove_special_tokens(text):
 
 def config_prefix(config, model, nanocodec_model, tokenizer):
     """The config's optional "prefix" (a fixed start of the dialogue, see training/prefix.py and
-    docs/oov_experiment.md "Prefix experiment") as a built Prefix, or None.
+    oov-shared/docs/experiments/oov_experiment.md "Prefix experiment") as a built Prefix, or None.
 
     Two shapes: {"wav", "words", ...} is one first turn by speaker1 (who starts the dialogue); {"turns": [...],
     "gap_s", "tail_s"} is several turns by both speakers, each {"speaker": "speaker1" | "speaker2", "wav", "words"},

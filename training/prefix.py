@@ -17,7 +17,7 @@ scripts/inference_eval/inference_nanocodec_special_tokens.sh.
 
 Level: CosyVoice clips are ~5.6 dB below Behavior-SD's active-speech level (oov-shared checks/LOG.md, 2026-10-16);
 pass gain_db, a peak guard keeps the result below PEAK_CEILING_DBFS. Check a prefix by ear and by frame table with
-scripts/analysis/check_prefix.py. Overview: docs/oov_experiment.md, "Prefix experiment".
+scripts/analysis/check_prefix.py. Overview: oov-shared/docs/experiments/oov_experiment.md, "Prefix experiment".
 """
 
 from dataclasses import dataclass, field
@@ -186,7 +186,7 @@ def build_multiturn_prefix(turns, codec, tokenizer, *, gain_db=0.0, gap_s=0.5, t
     lookahead_s: encode lookahead_s of extra silence after the last turn, then cut the codes back to the real length. NanoCodec codes
     near the end of an encoded waveform differ from the codes of the same audio in the middle of a longer one (measured: from 0.34 s
     before the speech ends, with a 0.3 s tail), and a model fine-tuned on dialogues that all end that way reads those end-of-file
-    codes as "EOS next" (docs/prefix_log.md). With lookahead the prefix codes are what they would be inside a longer dialogue."""
+    codes as "EOS next" (oov-shared/docs/experiments/prefix_log.md). With lookahead the prefix codes are what they would be inside a longer dialogue."""
     if not turns:
         raise ValueError("turns is empty")
     placed, cursor, ch_end = [], 0.0, {0: 0, 1: 0}

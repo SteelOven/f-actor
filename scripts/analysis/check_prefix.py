@@ -16,7 +16,7 @@ decode to the aligned words in order.
 Usage (laptop, f-actor .venv; NanoCodec and the tokenizer come from the HF cache / hf_models):
     python scripts/analysis/check_prefix.py --run-dir ../oov-data/checks/p1_oov150 --voice tom \\
         --words quokka schadenfreude water --out outputs/prefix_check
-Overview: docs/oov_experiment.md, "Prefix experiment".
+Overview: oov-shared/docs/experiments/oov_experiment.md, "Prefix experiment".
 """
 
 import argparse

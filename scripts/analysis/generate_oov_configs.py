@@ -18,13 +18,13 @@ Usage:
     python scripts/analysis/generate_oov_configs.py --words-file ../oov-shared/wordlists/oov_wordlist.csv
 
     # with a fixed first turn by speaker 1 (TTS clip of the word from an oov-shared
-    # round-trip run that has alignment.jsonl; see docs/oov_experiment.md "Prefix
+    # round-trip run that has alignment.jsonl; see oov-shared/docs/experiments/oov_experiment.md "Prefix
     # experiment"). Output files get a _pfx suffix.
     python scripts/analysis/generate_oov_configs.py --words quokka water \
         --prefix-run-dir '$WS/checks/p3_prefix_tom' --outdir confs/oov_prefix --audio-dir outputs/oov_prefix
 
     # multi-turn prefix: N demonstration exchanges (Tom asks for a frequent word, speaker 2 says it) before the target
-    # request; training/prefix.py build_multiturn_prefix, plan in docs/prefix_log.md. The demo words come from the
+    # request; training/prefix.py build_multiturn_prefix, plan in oov-shared/docs/experiments/prefix_log.md. The demo words come from the
     # pool of words that have both a request clip and a reply clip, never the target, seeded per (word, repeat).
     python scripts/analysis/generate_oov_configs.py --words music kitchen --speakers Tom,Gweneth \\
         --prefix-run-dir ../oov-data/checks/p5_demo_request --prefix-tail-s 0.3 --prefix-demos 2 \\
@@ -74,7 +74,7 @@ NARRATIVE_LISTENER = (
 # CosyVoice clips vs Behavior-SD's level (oov-shared checks/LOG.md, 2026-10-16; = training/prefix.py's
 # COSYVOICE_GAIN_DB, not imported so this script stays free of torch)
 DEFAULT_PREFIX_GAIN_DB = 5.6
-DEFAULT_MULTITURN_TAIL_S = 0.3   # the tail that stops audio EOS at the first frame (docs/prefix_log.md)
+DEFAULT_MULTITURN_TAIL_S = 0.3   # the tail that stops audio EOS at the first frame (oov-shared/docs/experiments/prefix_log.md)
 
 
 def load_prefixes(run_dir, voice):
@@ -246,7 +246,7 @@ def main():
                         help="between a turn's last word and the next turn's first word (Behavior-SD median 0.49 s)")
     args = parser.parse_args()
     # the explainer must be told the word; the listener may not be (e.g. the prefix "listen" variant, where
-    # speaker 2 only hears the word in speaker 1's prefix: docs/oov_experiment.md "Prefix experiment")
+    # speaker 2 only hears the word in speaker 1's prefix: oov-shared/docs/experiments/oov_experiment.md "Prefix experiment")
     if "{word}" not in args.narrative_explainer:
         parser.error("--narrative-explainer must contain {word}")
 

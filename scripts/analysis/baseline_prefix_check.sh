@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Does the released model continue after a prefix? Same words, three different request texts, with and without a tail (docs/prefix_log.md).
+# Does the released model continue after a prefix? Same words, three different request texts, with and without a tail (oov-shared/docs/experiments/prefix_log.md).
 #   p4_repeat      Please listen carefully and repeat the word X.
 #   p1_oov150      Please listen carefully. The word is X. Once more, the word is X.
 #   p3_prefix_tom  Hey Brian, I want to tell you about X. Have you ever heard of X?

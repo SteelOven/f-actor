@@ -47,7 +47,7 @@ def _():
     # repo code under test
     from data import load_data
     from modeling_dsu import DSULlama
-    from nano_decode import load_model as load_codec  # NeMo NanoCodec 22 kHz, 12.5 fps, 4 codebooks (as build_rows_dataset.py)
+    from nano_decode import load_model as load_codec  # NeMo NanoCodec 22 kHz, 12.5 fps, 4 codebooks (as tts_rows.build_dataset)
     from prefix import CODEC_SR, encode as codec_encode
     from train_rows import build_row, write_dataset
 
@@ -590,7 +590,7 @@ def _(L, SYM, dl, mo, silence_codes, source, text_by_frame, tok):
       not digital silence and encodes to other codes, until the first word. Check both by eye in the grid (Tom's heads show the mirror image: they settle
       back to the silence code a few rows after his clip ends). {_src}
     - Tom's text never appears (only the system stream exists); his heads carry the request, then settle to the silence code.
-    - The last rows before EOS differ from the silence code: the codec's end-of-file codes (see `docs/prefix_log.md`).
+    - The last rows before EOS differ from the silence code: the codec's end-of-file codes (see `oov-shared/docs/experiments/prefix_log.md`).
     """)
     return
 

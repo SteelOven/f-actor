@@ -10,7 +10,7 @@ commit `2efa25d`; upstream has moved on, see "Upstream sync". Branches are stack
 | `layer/1-train-options` | Training flags that change the loss/data: `--system_speaker`, `--mask_prompt_loss`, `--word_loss_weight` | 3 |
 | `layer/2-prefix` | Prefix generation: a fixed first turn (TTS clip) before the model speaks; tail, look-ahead, multi-turn prefixes; checks and golden file | 17 |
 | `layer/3-rows-finetune` | Request to reply fine-tune and its evals: `finetune_rows.sh`, `smoke_rows.sh`, teacher-forced check, EOS probe, inference options | 30 |
-| `dev` | `layer/3` minus the row builders (moved to the `tts_rows` repo) and the experiment docs (moved to `oov-shared/docs/experiments`) | +2 |
+| `dev` | `layer/3` minus the row builders (moved to the `tts_rows` repo) and the experiment docs (moved to `oov-shared/docs/experiments`) | +4 |
 
 `answer-finetune`, `prefix`, `prefix-multiturn`, `finetune-repeat` are the pre-restructure branches (same content, different history); tags
 `backup/2026-11-09*` point at them. The `layer/*` branches were built by cherry-picking those commits (`git log` shows `(cherry picked from commit ...)`
@@ -46,7 +46,7 @@ Generation (`confs/*.json`, read by `training/inference_example.py`):
 
 ## Upstream sync
 
-Upstream added a depth-decoder head and backchannel control (22 commits, 18 files in `training/`). A trial merge into the fork conflicts in 7 files
+Upstream added a depth-decoder head and backchannel control (22 commits, 15 files, 13 of them in `training/`). A trial merge into the fork conflicts in 7 files
 (13 hunks, mostly `modeling_dsu.py`). It changes the code under every result so far, so it is done on its own branch and not merged into `dev`
 until you decide to move the experiments onto it.
 

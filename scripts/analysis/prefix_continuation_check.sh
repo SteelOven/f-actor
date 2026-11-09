@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Larger version of baseline_prefix_check.sh: with the released model, does generation continue after the P4 request
 # ("Please listen carefully and repeat the word X.") plus a tail? Measures only whether it keeps going, not what is said.
-# The failure it looks for: ended_by eos after <= 2 generated frames ("immediate stop", docs/prefix_log.md). A run that
+# The failure it looks for: ended_by eos after <= 2 generated frames ("immediate stop", oov-shared/docs/experiments/prefix_log.md). A run that
 # ends by eos after hundreds of frames, or by max_length, is a continuation.
 #
 # Differences to baseline_prefix_check.sh: one model load for the whole job (run_oov_batch.py once; that was ~2.5 min
