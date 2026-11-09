@@ -172,6 +172,7 @@ def make_config(word, speaker1, speaker2, rep, args, speech_count, narrative_cou
         "output_dir": args.audio_dir,
         "output_file": f"{word}_r{rep}.wav",
         "max_length": args.max_length,
+        **({"mask_stop_frames": args.mask_stop_frames} if args.mask_stop_frames else {}),
         "temperature": args.temperature,
         "top_k": args.top_k,
         "top_p": args.top_p,
@@ -247,6 +248,8 @@ def main():
                         help="gain of the replies (Gweneth's CosyVoice clips are already at Behavior-SD's level)")
     parser.add_argument("--prompt-format", choices=["inference", "training"], default="inference", dest="prompt_format",
                         help="'training': the narrative is written as '- <narrative>' like training's build_prompt (for fine-tuned models)")
+    parser.add_argument("--mask-stop-frames", type=int, default=0, dest="mask_stop_frames",
+                        help="experiment: audio EOS cannot be sampled in the first N generated frames (0 = off); the run record logs P(EOS) per step")
     parser.add_argument("--prefix-lookahead-s", type=float, default=0.0, dest="prefix_lookahead_s",
                         help="encode this much extra silence after the prefix and cut the codes back: the codec's end-of-file codes otherwise "
                              "sit at the prefix end and the model reads them as 'EOS next' (docs/prefix_log.md)")

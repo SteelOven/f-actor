@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Generate the micro-run test dialogues with one model (loads it once): run_eval.sh <tag> [model dir; default: the released model]
+# MASKSTOP=40 (frames in which audio EOS cannot be sampled; the run record logs P(EOS) per step).
 # TAIL=0.1 LOOKAHEAD=1.5 run_eval.sh <tag> ... changes the prefix tail / look-ahead (see make_eval_configs.sh).
 # 18 dialogues x ~2 min on the laptop CPU. Resumable (finished dialogues are skipped).
 #   finetune_repeat/run_eval.sh base

@@ -88,13 +88,39 @@ def fwd(rows):
     # the model divides only the total loss by grad_acc_steps (= --accum); the audio/text parts are returned undivided
     return out["loss"] * args.accum, float(out["c1_dsu_loss"]), float(out["c1_text_loss"])
 
+PADS = set(tok.convert_tokens_to_ids(["[SILENCE_PAD]", "[UTTERANCE_PAD]", "[WORD_PAD]"])) | {tok.pad_token_id}
+
+def word_metrics(row):
+    """Text loss on the word frames only. The model's own text loss is a mean over [speaker slot, prompt tokens, text stream] (the prompt is
+    part of the labels) and the stream is mostly [SILENCE_PAD], so it says little about the words. Here: cross-entropy and top-1 accuracy of the
+    system speaker's text stream on its real word tokens, teacher-forced. The stream is the last N+1 positions of the labels (N frames + the pad
+    EOS the model appends); the logit one position before a label predicts it. Returns (sum of cross-entropy, n correct, n word tokens)."""
+    b = batch_of([row]); out = model(**b)
+    lg = out["ts_logits"][0, :, 0, :].float(); ids = b["text_stream_ids"][0, 0]
+    stream = torch.cat([ids, ids.new_full((1,), tok.pad_token_id)])           # labels of the stream part, length N+1
+    start = len(lg) - len(stream)                                               # first stream position in the full sequence
+    assert start >= 1, (len(lg), len(stream))
+    pred = lg[start - 1: len(lg) - 1]                                           # pred[k] predicts stream[k]
+    mask = torch.tensor([int(t) not in PADS for t in stream.tolist()], device=stream.device)
+    assert int(mask.sum()) == sum(int(t) not in PADS for t in ids.tolist()), "word-frame mask does not match the stream"
+    if not mask.any():
+        return 0.0, 0, 0
+    ce = torch.nn.functional.cross_entropy(pred[mask], stream[mask], reduction="sum")
+    return float(ce), int((pred[mask].argmax(-1) == stream[mask]).sum()), int(mask.sum())
+
 def evaluate(tag):
     with torch.no_grad():
         res = {}
         for name, ds, n in (("synthetic val", val, args.n_eval), ("real", real, 2)):
             ls = [fwd([ds[i]]) for i in range(min(n, len(ds)))]
             res[name] = tuple(sum(float(l[k]) for l in ls) / len(ls) for k in range(3))
+        wm = {}                                       # rows alternate: even = Tom is the system speaker, odd = Gweneth
+        for split, ds in (("val", val), ("train", syn)):
+            for who, par in (("Tom", 0), ("Gweneth", 1)):
+                ms = [word_metrics(ds[i]) for i in range(par, min(args.n_eval, len(ds)), 2)]
+                n = sum(m[2] for m in ms); wm[f"{split} {who}"] = (sum(m[0] for m in ms) / max(n, 1), sum(m[1] for m in ms) / max(n, 1), n)
     log(f"[{tag}] " + " | ".join(f"{k}: loss {v[0]:.3f} (audio {v[1]:.3f}, text {v[2]:.3f})" for k, v in res.items()))
+    log(f"[{tag}] word frames: " + " | ".join(f"{k}: CE {v[0]:.3f}, top-1 {v[1]:.2f} ({v[2]} tokens)" for k, v in wm.items()))
 
 n_rows = len(syn); steps_per_epoch = n_rows // args.accum
 total = args.max_steps or steps_per_epoch * args.epochs

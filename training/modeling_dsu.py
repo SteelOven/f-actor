@@ -658,6 +658,11 @@ class DSUModel(ModelInitializerLoader):
         n_delay_text_stream = kwargs.pop("n_delay_text_stream", 0)
         talk_to_itself = kwargs.pop("talk_to_itself", True)
         spk_emb = kwargs.pop("spk_emb", None)
+        # experiment switch: for the first mask_stop_steps generated steps the audio EOS (and the text pad stop id) cannot be
+        # sampled, so a stop in the first frames cannot end the run. 0 = off (default). self.eos_log gets, per generated step,
+        # the largest P(audio EOS) over the heads (softmax of the raw logits, before temperature/top-k) and the sampled stop.
+        mask_stop_steps = kwargs.pop("mask_stop_steps", 0)
+        self.eos_log = []
 
         if self.text_stream and text_sample is not None and dsu_sample is None:
             raise ValueError("Need to add dsu sample if you want text sample!")
@@ -753,6 +758,11 @@ class DSUModel(ModelInitializerLoader):
 
             past_key_values = outputs["past_key_values"]
             dsu_logits = outputs["logits"][:, -1, :, :]  # [B, L_total, H,  V]
+            masked = step - start_step < mask_stop_steps
+            p_eos = torch.softmax(dsu_logits.float(), dim=-1)[..., self.audio_eos_id].max().item()
+            if masked:
+                dsu_logits = dsu_logits.clone()
+                dsu_logits[..., self.audio_eos_id] = float("-inf")
 
             if step >= n_delay_audio_stream:
                 generated_dsu[:, :, step] = self.get_next_tokens(
@@ -763,6 +773,9 @@ class DSUModel(ModelInitializerLoader):
 
             if self.text_stream or self.multi_text_stream:
                 ts_logits = outputs["ts_logits"][:, -1, :, :]  # [B, L_total, H,  V]
+                if masked:
+                    ts_logits = ts_logits.clone()
+                    ts_logits[..., self.pad_token_id] = float("-inf")
 
                 generated_text[:, :, step] = self.get_next_tokens(
                     B, ts_logits, do_sample, temperature, top_k, top_p
@@ -772,6 +785,8 @@ class DSUModel(ModelInitializerLoader):
                 generated_dsu = interleave_halves(generated_dsu)
                 if self.num_text_streams > 1:
                     generated_text = interleave_halves(generated_text)
+
+            self.eos_log.append(round(p_eos, 4))
 
             # EOS in dsus
             if torch.isin(generated_dsu[:, :, step], audio_stop_ids).any():

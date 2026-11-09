@@ -238,6 +238,7 @@ def generate_dialogue(model, tokenizer, nanocodec_model, config):
             tokenizer=tokenizer,
             stop_strings=["<|EOS|>"],
             use_speaker_sample=n_prefix,
+            mask_stop_steps=config.get("mask_stop_frames", 0),
             dsu_sample=dsu_sample,
             text_sample=text_sample,
             n_delay_text_stream=0,
@@ -279,6 +280,8 @@ def generate_dialogue(model, tokenizer, nanocodec_model, config):
         "speaker2": {"name": speaker2["name"], "transcript": text_speaker2},
         "n_generated_frames": n_total - n_prefix,
         "ended_by": ended_by,
+        **({"mask_stop_frames": config["mask_stop_frames"]} if config.get("mask_stop_frames") else {}),
+        "max_p_eos_per_step": model.eos_log,     # per generated step, largest P(audio EOS) over the heads
     }
     record_prefix = None
     if prefix is not None:

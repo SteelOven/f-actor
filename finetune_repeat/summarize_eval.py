@@ -31,6 +31,6 @@ for x in rows:
     print(f"{x['tag']:6} {x['group']:8} {x['word']:16} {x['rep']:>1} {x['ended']:10} {x['frames']:>6} {str(x['text']):>5} {str(x['s1']):>5} {str(x['s2']):>5} {x['audio2']:10} {x['said']}")
 print("\nper model and group: runs | target in speaker 2's text | audio2 intact | stopped early")
 for tag in sorted({x["tag"] for x in rows}):
-    for group in ("train", "heldout", "oov"):
+    for group in ("train", "val", "heldout", "oov"):
         c = [x for x in rows if x["tag"] == tag and x["group"] == group]
         if c: print(f"  {tag:6} {group:8}: {len(c):2d} | {sum(x['text'] for x in c):2d} | {sum(x['audio2'] == 'intact' for x in c):2d} | {sum(x['ended'] == 'eos' for x in c):2d}")

@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>F-Actor repeat fine-tune: what is trained, and the approaches</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{
+    --bg:#0e1116; --panel:#161b22; --line:#2a313c; --text:#e6edf3; --mute:#8b97a6;
+    --frozen:#3b4655; --frozen-edge:#566275;
+    --lora:#ff9f43; --loraB:#ff6b81; --full:#2ecc9a; --accent:#5aa9ff; --tom:#5aa9ff; --gw:#b48cff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+  main{max-width:1180px;margin:0 auto;padding:40px 24px 80px}
+  h1{font-size:30px;margin:0 0 6px;letter-spacing:-.01em}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.12em;color:var(--mute);margin:56px 0 14px;font-weight:600}
+  p.lead{color:var(--mute);max-width:780px;margin:0 0 26px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+  .stat{background:#12171e;border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .stat b{display:block;font-size:24px;letter-spacing:-.02em}
+  .stat span{color:var(--mute);font-size:12.5px}
+  svg{display:block;width:100%;height:auto}
+  svg text{font-family:inherit;fill:var(--text)}
+  .m{fill:var(--mute)} .sm{font-size:12px} .xs{font-size:10.5px}
+  .legend{display:flex;flex-wrap:wrap;gap:18px;margin:14px 0 0;font-size:13px;color:var(--mute)}
+  .legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+  table{border-collapse:collapse;width:100%;font-size:13.5px}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--mute);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.06em}
+  code{background:#1f2630;padding:1px 6px;border-radius:5px;font-size:.92em}
+  .note{color:var(--mute);font-size:13px;margin-top:10px}
+  .tabs{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 16px;align-items:center}
+  .tab{background:#1f2630;border:1px solid var(--line);color:var(--text);border-radius:10px;padding:9px 14px;cursor:pointer;font:inherit;font-size:13.5px;text-align:left}
+  .tab small{display:block;color:var(--mute);font-size:11.5px}
+  .tab.on{border-color:var(--accent);background:#1b2a3d}
+  .badge{display:inline-block;font-size:10.5px;font-weight:700;letter-spacing:.06em;padding:1px 7px;border-radius:99px;margin-left:6px;vertical-align:1px}
+  .b-run{background:#12382b;color:#5ee3b2} .b-code{background:#2f2a14;color:#f0c75e} .b-idea{background:#2b2236;color:#c9a8ff}
+  .nctl{display:flex;align-items:center;gap:10px;color:var(--mute);font-size:13px}
+  .nctl input{width:140px}
+</style>
+</head>
+<body>
+<main>
+  <h1>F-Actor repeat fine-tune: what is trained, and the approaches</h1>
+  <p class="lead">A Llama-3.2-1B-sized backbone (16 layers, hidden 2048) that listens and speaks on 8 audio streams plus a text stream.
+  The fine-tune teaches a repeat-the-word behaviour. This page shows <b>which tensors move</b> for each approach and which signal moves them;
+  it carries no results.
+  Sources: <code>hf_models/f_actor/config.json</code>, <code>finetune_repeat/local_train.py</code>, <code>rows.py</code>, <code>make_dataset*.py</code>, safetensors shapes.</p>
+
+  <h2>1 · Pin-point the trained part (pick an approach)</h2>
+  <div class="panel">
+    <div class="tabs" id="tabs"></div>
+    <svg id="map" viewBox="0 0 1130 412"></svg>
+    <div class="legend">
+      <span><i style="background:var(--frozen)"></i>frozen</span>
+      <span><i style="background:var(--lora)"></i>LoRA adapter on a frozen weight</span>
+      <span><i style="background:var(--full)"></i>all weights trained</span>
+    </div>
+    <div class="stats" id="mapstats" style="margin-top:16px"></div>
+    <p class="note" id="mapnote"></p>
+  </div>
+
+  <h2>2 · The approaches side by side</h2>
+  <div class="panel">
+    <table id="approaches"></table>
+    <p class="note"><span class="badge b-run">RUN</span> a train log exists &nbsp;
+      <span class="badge b-code">IN CODE</span> supported by <code>local_train.py</code>, no run seen &nbsp;
+      <span class="badge b-idea">IDEA</span> not in the code (small change to <code>target_modules</code>)</p>
+    <svg id="cmp" viewBox="0 0 1130 220" style="margin-top:14px"></svg>
+  </div>
+
+  <h2>3 · The training signal: one dialogue, two rows</h2>
+  <div class="panel">
+    <svg id="signal" viewBox="0 0 1130 470"></svg>
+    <p class="note">One dialogue gives two rows, one per system perspective (<code>rows.py</code>): audio heads 0–3 are the system speaker, 4–7 the other speaker;
+    the text stream, narrative, “starts the dialogue” flag and speaker embedding are the system speaker's.
+    In training mode the loss covers every non-pad label of all 8 audio heads and the text stream; it is averaged per conversation and the audio and text parts are added.
+    The orange words are the idea: what was heard has to come out again.</p>
+  </div>
+
+  <h2>4 · Data approaches</h2>
+  <div class="panel">
+    <table id="data"></table>
+    <p class="note">Clips are TTS, tidied before assembly (lead cut to 0.1 s, word gaps ≤ 0.2 s, 40 ms fade-out, end tail 0.1 s).
+    Validation uses words that are not in training, plus a few real rows as a sanity check.</p>
+  </div>
+
+  <h2>5 · One layer, matrices drawn to scale</h2>
+  <div class="panel">
+    <svg id="layer" viewBox="0 0 1130 600"></svg>
+    <p class="note">Areas are to scale (PyTorch <code>[out, in]</code>: rows = out, columns = in). Orange strips are LoRA <b>A</b> (<code>r×in</code>) and pink strips <b>B</b> (<code>out×r</code>);
+    their thickness is exaggerated about 6×, real rank 16 would be under 1 px at this zoom.</p>
+  </div>
+
+  <h2>6 · What a LoRA adapter does</h2>
+  <div class="panel">
+    <svg id="lora" viewBox="0 0 1130 250"></svg>
+    <svg id="perlayer" viewBox="0 0 700 300" style="margin-top:22px;max-width:700px"></svg>
+  </div>
+
+  <h2>7 · The training loop, step by step</h2>
+  <div class="panel">
+    <svg id="loop" viewBox="0 0 1130 260"></svg>
+  </div>
+</main>
+
+<script>
+const NS="http://www.w3.org/2000/svg";
+const $=id=>document.getElementById(id);
+const fmt=n=>Math.round(n).toLocaleString("en-US");
+const Mi=n=>(n/1e6).toFixed(n>=1e8?1:2)+" M";
+function el(p,tag,a={},t){const e=document.createElementNS(NS,tag);for(const k in a)e.setAttribute(k,a[k]);if(t!==undefined)e.textContent=t;p.appendChild(e);return e}
+const T=(p,x,y,t,cls="",anchor="start",extra={})=>el(p,"text",{x,y,class:cls,"text-anchor":anchor,...extra},t);
+const sum=(a,f)=>a.reduce((s,x)=>s+f(x),0);
+
+// ---------- facts ----------
+const H=2048,FF=8192,KV=512,L=16,R=16,VOCAB=128321,AV=4034,NH=8;
+const mats=[
+  {n:"q_proj",out:H,inn:H,g:"attn"},{n:"k_proj",out:KV,inn:H,g:"attn"},
+  {n:"v_proj",out:KV,inn:H,g:"attn"},{n:"o_proj",out:H,inn:H,g:"attn"},
+  {n:"gate_proj",out:FF,inn:H,g:"mlp"},{n:"up_proj",out:FF,inn:H,g:"mlp"},{n:"down_proj",out:H,inn:FF,g:"mlp"},
+];
+mats.forEach(m=>{m.w=m.out*m.inn;m.lora=R*(m.out+m.inn)});
+const loraAll=sum(mats,m=>m.lora), loraAttn=sum(mats.filter(m=>m.g==="attn"),m=>m.lora);
+const wLayer=sum(mats,m=>m.w)+2*H;                         // matrices + two RMSNorm weights
+const headsAll=NH*AV*H + (NH*AV*H+NH*AV) + (192*H+H);       // audio_embeds + dsu_head(+bias) + speaker proj
+const TOTAL=1380e6;
+
+// ---------- approaches ----------
+let topN=4, cur=0;
+const BADGE={run:"RUN",code:"IN CODE",idea:"IDEA"};
+const APPROACHES=[
+  {id:"A",name:"LoRA on the backbone",sub:"lora:16 · heads frozen",badge:"run",
+   state:c=>c.kind==="mat"?"lora":"frozen", count:()=>L*loraAll,
+   note:"Default. Every one of the 7 linear matrices in all 16 layers gets a rank-16 adapter; embeddings, norms and both heads stay frozen. The question: can the backbone alone learn to route what it hears into what it says?"},
+  {id:"B",name:"LoRA + audio heads/embeds",sub:"lora:16 · --heads train",badge:"run",
+   state:c=>c.kind==="mat"?"lora":(c.kind==="head"?"full":"frozen"), count:()=>L*loraAll+headsAll,
+   note:"Same adapters, and in addition the 8 audio input embeddings, the audio output head and the speaker projection are trained in full (no adapter). The text side (embed_tokens, tied lm_head) stays frozen in every approach."},
+  {id:"C",name:"Full-train the last N layers",sub:"top:N",badge:"code",
+   state:c=>(c.kind==="mat"||c.kind==="norm")&&c.layer>=L-topN?"full":"frozen", count:()=>topN*wLayer,
+   note:"No adapters: layers 16−N … 15 are trained in full (matrices and their two RMSNorms). The final model.norm, embeddings and heads stay frozen unless --heads train is added."},
+  {id:"D",name:"LoRA on attention only",sub:"q/k/v/o only",badge:"idea",
+   state:c=>c.kind==="mat"&&c.g==="attn"?"lora":"frozen", count:()=>L*loraAttn,
+   note:"Not in the code. Shrinking target_modules to the four attention matrices would adapt only how frames look at each other and leave the per-frame MLP untouched, at about 30 % of the adapter size."},
+];
+const COL={frozen:"var(--frozen)",lora:"var(--lora)",full:"var(--full)"};
+
+// ---------- 1. map ----------
+function drawMap(){
+  const A=APPROACHES[cur], s=$("map"); s.innerHTML="";
+  const st=c=>A.state(c);
+  const stripe=(x,y,w,h,state,tip)=>{const r=el(s,"rect",{x,y,width:w,height:h,rx:3,fill:COL[state],stroke:state==="frozen"?"var(--frozen-edge)":"none"});if(tip)el(r,"title",{},tip)};
+  const box=(x,y,w,h,label,sub,state)=>{
+    el(s,"rect",{x,y,width:w,height:h,rx:9,fill:"#1b222c",stroke:state==="frozen"?"var(--frozen-edge)":COL[state],"stroke-width":state==="frozen"?1.2:2.5});
+    el(s,"rect",{x:x+8,y:y+9,width:10,height:h-18,rx:3,fill:COL[state]});
+    T(s,x+26,y+23,label,"sm","start",{"font-weight":600});
+    T(s,x+26,y+40,sub,"xs m");
+  };
+  T(s,10,22,"INPUT EMBEDDINGS","xs m");
+  box(10,32,176,56,"audio_embeds ×8","4034 × 2048 each",st({kind:"head"}));
+  box(10,98,176,56,"embed_tokens","128 321 × 2048",st({kind:"emb"}));
+  box(10,164,176,56,"speaker_embed_proj","192 → 2048",st({kind:"head"}));
+  T(s,98,246,"per frame: Σ of 8 audio embeds","xs m","middle");
+  T(s,98,261,"+ text-token embed","xs m","middle");
+  el(s,"line",{x1:190,y1:126,x2:206,y2:126,stroke:"#566275","stroke-width":2});
+
+  const x0=208,cw=40,gap=4;
+  T(s,x0,22,"16 DECODER LAYERS  (hidden 2048 · 32 heads · 8 KV heads · FFN 8192)","xs m");
+  for(let i=0;i<L;i++){
+    const x=x0+i*(cw+gap),y=32;
+    el(s,"rect",{x,y,width:cw,height:302,rx:6,fill:"#12171e",stroke:"#2a313c"});
+    T(s,x+cw/2,y+14,"L"+i,"xs","middle",{"font-weight":600});
+    let yy=y+22;
+    mats.filter(m=>m.g==="attn").forEach(m=>{stripe(x+5,yy,cw-10,17,st({kind:"mat",g:"attn",layer:i}),`layer ${i} ${m.n} ${m.out}×${m.inn}`);yy+=20});
+    T(s,x+cw/2,yy+8,"attn","xs m","middle");yy+=16;
+    mats.filter(m=>m.g==="mlp").forEach(m=>{stripe(x+5,yy,cw-10,42,st({kind:"mat",g:"mlp",layer:i}),`layer ${i} ${m.n} ${m.out}×${m.inn}`);yy+=45});
+    T(s,x+cw/2,yy+8,"mlp","xs m","middle");yy+=16;
+    stripe(x+5,yy,cw-10,5,st({kind:"norm",layer:i}));stripe(x+5,yy+8,cw-10,5,st({kind:"norm",layer:i}));
+    T(s,x+cw/2,yy+25,"norms","xs m","middle",{"font-size":"8.5"});
+  }
+  const xe=x0+L*(cw+gap), hx=xe+14;
+  el(s,"line",{x1:xe-2,y1:67,x2:hx,y2:67,stroke:"#566275","stroke-width":2});
+  el(s,"line",{x1:xe-2,y1:185,x2:hx,y2:185,stroke:"#566275","stroke-width":2});
+  T(s,hx,22,"OUTPUT HEADS","xs m");
+  box(hx,32,1120-hx,70,"dsu_head (+ bias)","2048 → 32 272 = 8 × 4034",st({kind:"head"}));
+  T(s,hx+26,92,"audio logits, 8 codebooks","xs m");
+  box(hx,150,1120-hx,70,"lm_head (tied to embed)","2048 → 128 321",st({kind:"emb"}));
+  T(s,hx+26,210,"text logits, system stream","xs m");
+  box(hx,238,1120-hx,56,"model.norm","RMSNorm 2048",st({kind:"final"}));
+
+  if(A.id==="C"){
+    const bx=x0+(L-topN)*(cw+gap);
+    el(s,"rect",{x:bx-2,y:344,width:xe-bx-2,height:8,rx:3,fill:"var(--full)"});
+    T(s,bx,366,`last ${topN} layers fully trained`,"xs");
+  }else{
+    el(s,"rect",{x:x0,y:344,width:xe-x0-4,height:8,rx:3,fill:"var(--lora)"});
+    T(s,x0,366,A.id==="D"?"adapters on the 4 attention matrices of every layer":"adapters on all 7 matrices of every layer","xs");
+  }
+  T(s,10,398,"Loss: audio CE on 8 heads + text CE on the system's text stream (section 3). Gradients flow back through the frozen parts to every orange or green part.","xs m");
+
+  const n=A.count(), box_=$("mapstats"); box_.innerHTML="";
+  const tiles=[[fmt(n),`trainable parameters (${(n/TOTAL*100).toFixed(2)} % of 1.38 B)`]];
+  if(A.id==="A"||A.id==="B")tiles.push(["16 × 7 = 112","adapters, "+fmt(loraAll)+" parameters per layer"]);
+  if(A.id==="B")tiles.push([Mi(headsAll),"audio_embeds 66.1 M + dsu_head 66.1 M + speaker 0.4 M"]);
+  if(A.id==="C")tiles.push([fmt(wLayer),"parameters per layer, × "+topN]);
+  if(A.id==="D")tiles.push(["16 × 4",fmt(loraAttn)+" adapter parameters per layer"]);
+  tiles.push([BADGE[A.badge],A.sub]);
+  tiles.forEach(([b,t])=>{const d=document.createElement("div");d.className="stat";d.innerHTML=`<b>${b}</b><span>${t}</span>`;box_.appendChild(d)});
+  $("mapnote").textContent=A.note;
+}
+function drawTabs(){
+  const t=$("tabs");t.innerHTML="";
+  APPROACHES.forEach((a,i)=>{
+    const b=document.createElement("button");b.className="tab"+(i===cur?" on":"");
+    b.innerHTML=`<b>${a.id} · ${a.name}</b><span class="badge b-${a.badge}">${BADGE[a.badge]}</span><small>${a.sub}</small>`;
+    b.onclick=()=>{cur=i;drawTabs();drawMap()};t.appendChild(b);
+  });
+  if(APPROACHES[cur].id==="C"){
+    const d=document.createElement("div");d.className="nctl";
+    d.innerHTML=`N = <b id="nval">${topN}</b><input type="range" min="1" max="16" value="${topN}">`;
+    d.querySelector("input").oninput=e=>{topN=+e.target.value;$("nval").textContent=topN;drawMap()};
+    t.appendChild(d);
+  }
+}
+
+// ---------- 2. approaches table + bars ----------
+(function(){
+  const rows=[
+    ["A · LoRA on the backbone","run","lora:16","7 matrices × 16 layers (rank-16 A/B)",fmt(L*loraAll)],
+    ["B · LoRA + heads","run","lora:16 --heads train","as A, plus audio_embeds ×8, dsu_head, speaker_embed_proj in full",fmt(L*loraAll+headsAll)],
+    ["C · top-N full layers","code","top:N","last N layers in full (matrices + norms)","N × "+fmt(wLayer)],
+    ["D · attention-only LoRA","idea","target_modules = q,k,v,o","4 matrices × 16 layers",fmt(L*loraAttn)],
+  ];
+  $("approaches").innerHTML=`<tr><th>approach</th><th>flag</th><th>what gets gradient</th><th>trainable parameters</th></tr>`+
+    rows.map(r=>`<tr><td><b>${r[0]}</b><span class="badge b-${r[1]}">${BADGE[r[1]]}</span></td><td><code>${r[2]}</code></td><td>${r[3]}</td><td>${r[4]}</td></tr>`).join("");
+  const s=$("cmp");
+  T(s,10,18,"Trainable parameters, linear scale against the 1.38 B model","sm","start",{"font-weight":600});
+  [["whole model",TOTAL,"var(--frozen)"],["C · top:4 (example)",4*wLayer,"var(--full)"],["B · LoRA + heads",L*loraAll+headsAll,"var(--full)"],["A · LoRA",L*loraAll,"var(--lora)"],["D · attention-only LoRA",L*loraAttn,"var(--lora)"]].forEach(([n,v,c],i)=>{
+    const y=34+i*34,w=Math.max(3,v/TOTAL*760);
+    T(s,10,y+16,n,"sm");
+    el(s,"rect",{x:210,y,width:760,height:22,rx:4,fill:"#1f2630"});
+    el(s,"rect",{x:210,y,width:w,height:22,rx:4,fill:c});
+    T(s,210+Math.max(w,60)+10,y+16,Mi(v)+"  ("+(v/TOTAL*100).toFixed(2)+" %)","sm");
+  });
+})();
+
+// ---------- 3. signal ----------
+(function(){
+  const s=$("signal"),X0=250,sec=850/8,x=t=>X0+t*sec;
+  function panel(y,sysName,sysIsTom){
+    const sysC=sysIsTom?"var(--tom)":"var(--gw)",othC=sysIsTom?"var(--gw)":"var(--tom)";
+    el(s,"rect",{x:10,y,width:1110,height:222,rx:10,fill:"#12171e",stroke:"var(--line)"});
+    T(s,24,y+22,`Row ${sysIsTom?1:2}: system speaker = ${sysName}`,"sm","start",{"font-weight":600});
+    T(s,24,y+40,"narrative: "+(sysIsTom?"“You ask Gweneth to repeat words after you, one word at a time.”":"“Tom will say a word. Listen to it and say the same word back to Tom.”"),"xs m");
+    for(let t=0;t<=8;t++){el(s,"line",{x1:x(t),y1:y+54,x2:x(t),y2:y+196,stroke:"#1f2630"});T(s,x(t),y+212,t+" s","xs m","middle",{"font-size":"9"})}
+    const lanes=[y+58,y+100,y+142];
+    ["heads 0–3 · system audio","heads 4–7 · other audio","text stream · system words"].forEach((l,i)=>T(s,24,lanes[i]+19,l,"xs m"));
+    const tomSp=[0.2,4.95],gwSp=[5.4,6.6];
+    const sysSp=sysIsTom?tomSp:gwSp,othSp=sysIsTom?gwSp:tomSp;
+    el(s,"rect",{x:x(sysSp[0]),y:lanes[0]+2,width:x(sysSp[1])-x(sysSp[0]),height:26,rx:5,fill:sysC,opacity:.85});
+    el(s,"rect",{x:x(othSp[0]),y:lanes[1]+2,width:x(othSp[1])-x(othSp[0]),height:26,rx:5,fill:othC,opacity:.85});
+    const tomW=[["Please",.3,.9],["listen",1.0,1.6],["carefully",1.7,2.5],["and",2.6,2.9],["repeat",3.0,3.7],["the",3.8,4.1],["word",4.2,4.6],["X",4.65,4.95]];
+    const gwW=[["Okay,",5.45,6.0],["X",6.05,6.6]];
+    (sysIsTom?tomW:gwW).forEach(([w,a,b])=>{
+      const hi=w==="X";
+      el(s,"rect",{x:x(a),y:lanes[2]+3,width:x(b)-x(a)-1,height:24,rx:4,fill:hi?"var(--lora)":"#2a313c"});
+      T(s,(x(a)+x(b))/2,lanes[2]+19,w,"xs","middle",{fill:hi?"#1b1209":"var(--text)","font-weight":hi?700:400});
+    });
+    T(s,x(0.2),lanes[2]+46,"[SILENCE_PAD] fills the stream between words","xs m");
+    if(sysIsTom){
+      T(s,x(5.4),lanes[2]+19,"Tom's own words are targets too","xs m");
+    }else{
+      el(s,"rect",{x:x(4.65)-2,y:lanes[1]-1,width:x(4.95)-x(4.65)+3,height:32,rx:5,fill:"none",stroke:"var(--lora)","stroke-width":2});
+      el(s,"rect",{x:x(6.05)-2,y:lanes[2]-1,width:x(6.6)-x(6.05)+3,height:32,rx:5,fill:"none",stroke:"var(--lora)","stroke-width":2});
+      el(s,"path",{d:`M${x(4.95)+4},${lanes[1]+16} C ${x(5.6)},${lanes[1]+16} ${x(6.1)},${lanes[2]-4} ${x(6.3)},${lanes[2]-2}`,fill:"none",stroke:"var(--lora)","stroke-width":1.6,"stroke-dasharray":"4 3"});
+      T(s,x(0.4),lanes[0]+19,"ringed: the heard X (other audio) must reappear as the said X (system audio + text)","xs","start",{fill:"var(--lora)"});
+    }
+  }
+  panel(6,"Tom",true);
+  panel(236,"Gweneth",false);
+})();
+
+// ---------- 4. data approaches ----------
+$("data").innerHTML=`
+<tr><th>dataset</th><th>structure</th><th>words</th><th>generator</th></tr>
+<tr><td><b>micro</b> (micro_v2, micro_v3)</td><td>multi-exchange: 3–5 request/reply pairs per dialogue, 16–28 s</td><td>5 training words, a few held out</td><td><code>make_dataset.py</code></td></tr>
+<tr><td><b>single</b> (single_v1)</td><td>one exchange per word: “Tom: Please listen carefully and repeat the word X.”, then “Gweneth: Okay, X.” Two rows each.</td><td>many distinct words, separate validation words</td><td><code>make_dataset_single.py</code></td></tr>
+<tr><td><b>single + variants</b> (single_v2)</td><td>as single, with several request-to-reply gaps per word (<code>--gap-range</code>, <code>--variants</code>)</td><td>same recipe, more rows per word</td><td><code>make_dataset_single.py</code></td></tr>`;
+
+// ---------- 5. layer to scale ----------
+(function(){
+  const s=$("layer"),k=1/20,strip=6;
+  function matrix(x,y,m){
+    const w=m.inn*k,h=m.out*k;
+    el(s,"rect",{x:x-strip-3,y,width:strip,height:h,fill:"var(--loraB)",rx:1.5});
+    el(s,"rect",{x,y:y-strip-3,width:w,height:strip,fill:"var(--lora)",rx:1.5});
+    el(s,"rect",{x,y,width:w,height:h,fill:"var(--frozen)",stroke:"var(--frozen-edge)",rx:3});
+    const cx=x+w/2,cy=y+h/2;
+    if(h>=40){T(s,cx,cy-6,m.n,"sm","middle",{"font-weight":600});T(s,cx,cy+12,`${fmt(m.out)} × ${fmt(m.inn)}`,"xs m","middle")}
+    else T(s,cx,cy+4,`${m.n}  ${m.out} × ${fmt(m.inn)}`,"xs","middle");
+  }
+  const by=n=>mats.find(m=>m.n===n);
+  T(s,30,24,"SELF-ATTENTION","sm m");
+  const ax=44,ay=64,gap=34;
+  matrix(ax,ay,by("q_proj"));matrix(ax+102+gap,ay,by("k_proj"));matrix(ax+102+gap,ay+48,by("v_proj"));matrix(ax+2*(102+gap),ay,by("o_proj"));
+  T(s,ax+51,ay+130,"queries: 32 heads × 64","xs m","middle");
+  T(s,ax+102+gap+51,ay+104,"k / v: 8 heads × 64","xs m","middle");
+  T(s,ax+2*(102+gap)+51,ay+130,"output mix","xs m","middle");
+  const aW=sum(mats.filter(m=>m.g==="attn"),m=>m.w);
+  T(s,30,ay+190,`frozen ${Mi(aW)}  →  LoRA ${fmt(loraAttn)}  (${(loraAttn/aW*100).toFixed(2)} %)`,"sm");
+  T(s,30,ay+215,"Skinny k/v: 8 KV heads × 64 = 512 rows; queries have 32 × 64 = 2048.","xs m");
+  const mx=520;
+  T(s,mx,24,"MLP (SwiGLU):  down( silu(gate · x) ⊙ up · x ), per frame, no mixing across time","sm m");
+  const my=64;
+  matrix(mx+10,my,by("gate_proj"));matrix(mx+10+102+gap,my,by("up_proj"));matrix(mx+10,my+410+gap+4,by("down_proj"));
+  const mW=sum(mats.filter(m=>m.g==="mlp"),m=>m.w),mL=sum(mats.filter(m=>m.g==="mlp"),m=>m.lora);
+  const tx=mx+10+204+gap+30;
+  T(s,tx,my+120,`frozen ${Mi(mW)}  →  LoRA ${fmt(mL)}`,"sm");
+  T(s,tx,my+142,`(${(mL/mW*100).toFixed(2)} % of the block)`,"xs m");
+  T(s,tx,my+190,"hidden 2048 → 8192 → 2048","xs m");
+  T(s,tx,my+210,"each matrix: 16.8 M frozen, 163 840 LoRA","xs m");
+  el(s,"rect",{x:30,y:400,width:14,height:6,fill:"var(--lora)"});T(s,52,407,"LoRA A  (r × in) = 16 × in","xs m");
+  el(s,"rect",{x:30,y:420,width:6,height:14,fill:"var(--loraB)"});T(s,52,432,"LoRA B  (out × r) = out × 16","xs m");
+  T(s,30,470,`Per layer: frozen ${Mi(wLayer)}  ·  LoRA ${fmt(loraAll)}`,"sm");
+})();
+
+// ---------- 6. lora mechanics + per-matrix bars ----------
+(function(){
+  const s=$("lora"),d=130,r=14,x=30,y=56;
+  T(s,x,28,"Example q_proj (2048 × 2048):   y = W x  +  (α/r) · B (A x),   α = 32, r = 16, α/r = 2","sm m");
+  const sq=(x,y,w,h,f,st,l1,l2)=>{el(s,"rect",{x,y,width:w,height:h,rx:3,fill:f,stroke:st||"none"});
+    if(l1)T(s,x+w/2,y+h/2-(l2?2:-4),l1,"sm","middle",{"font-weight":600});if(l2)T(s,x+w/2,y+h/2+15,l2,"xs m","middle")};
+  sq(x,y,d,d,"var(--frozen)","var(--frozen-edge)","W","2048 × 2048");
+  T(s,x+d/2,y+d+22,"4 194 304, frozen","xs m","middle");
+  T(s,x+d+22,y+d/2+6,"+","","middle",{"font-size":"26"});
+  const bx=x+d+50;sq(bx,y,r*1.6,d,"var(--loraB)");
+  T(s,bx+r*.8,y-8,"B","sm","middle",{"font-weight":600});T(s,bx+r*.8,y+d+22,"2048 × 16","xs m","middle");
+  T(s,bx+r*1.6+20,y+d/2+6,"·","","middle",{"font-size":"26"});
+  const ax=bx+r*1.6+40;sq(ax,y+d/2-r*.8,d,r*1.6,"var(--lora)");
+  T(s,ax+d/2,y+d/2-r*.8-8,"A","sm","middle",{"font-weight":600});T(s,ax+d/2,y+d/2+r*.8+22,"16 × 2048","xs m","middle");
+  T(s,ax+d+34,y+d/2+6,"=","","middle",{"font-size":"26"});
+  const rx=ax+d+70;sq(rx,y,d,d,"none","var(--lora)","ΔW","rank ≤ 16");
+  el(s,"rect",{x:rx,y,width:d,height:d,rx:3,fill:"var(--lora)",opacity:.14});
+  T(s,rx+d/2,y+d+22,"never built while training","xs m","middle");
+  const tx=rx+d+50;
+  T(s,tx,y+10,"65 536 trained parameters","sm","start",{"font-weight":600});
+  T(s,tx,y+30,"= 1.56 % of this matrix","sm m");
+  T(s,tx,y+66,"A starts random, B starts at zero:","xs m");T(s,tx,y+82,"ΔW = 0, training starts from","xs m");T(s,tx,y+98,"the released model.","xs m");
+  T(s,tx,y+122,"At the end the adapters are merged into W.","xs m");
+  const b=$("perlayer");
+  T(b,10,20,"LoRA parameters per layer, by matrix:  16 × (in + out)","sm","start",{"font-weight":600});
+  const mx=Math.max(...mats.map(m=>m.lora));
+  mats.forEach((m,i)=>{const yy=38+i*36,w=m.lora/mx*300;
+    T(b,10,yy+17,m.n,"sm");el(b,"rect",{x:110,y:yy,width:w,height:24,rx:4,fill:m.g==="attn"?"var(--lora)":"var(--loraB)"});
+    T(b,110+w+8,yy+12,fmt(m.lora),"sm");T(b,110+w+8,yy+25,`16 × (${fmt(m.inn)} + ${fmt(m.out)})`,"xs m")});
+  T(b,10,296,`Σ = ${fmt(loraAll)} per layer  ×  16  =  ${fmt(L*loraAll)}`,"sm m");
+})();
+
+// ---------- 7. loop ----------
+(function(){
+  const s=$("loop");
+  const steps=[
+    ["1 load","released F-Actor checkpoint in fp32; vocabulary grown to 128 321 (61 special tokens added)"],
+    ["2 freeze","requires_grad = False on every parameter"],
+    ["3 choose scope","LoRA on 7 matrices, or unfreeze the last N layers; optionally also the audio heads, embeds and speaker projection"],
+    ["4 forward","one row per pass in train mode: speaker slot + prompt + Σ(8 audio) + text; returns audio CE and text CE"],
+    ["5 accumulate","4 rows per optimizer step (loss scaled by accum)"],
+    ["6 AdamW","weight decay 0; lr 1e-4 default; 5 warm-up steps, then cosine down to 10 %"],
+    ["7 merge + save","adapters folded into W; full model and tokenizer written to out/final"],
+  ];
+  const w=148,g=12;
+  steps.forEach(([h,t],i)=>{
+    const x=10+i*(w+g);
+    el(s,"rect",{x,y:20,width:w,height:200,rx:10,fill:"#1b222c",stroke:i===2?"var(--lora)":"var(--frozen-edge)","stroke-width":i===2?2.5:1.2});
+    T(s,x+12,44,h,"sm","start",{"font-weight":700});
+    let line="",ly=68;
+    t.split(" ").forEach(wd=>{if((line+" "+wd).length>21){T(s,x+12,ly,line,"xs m");ly+=15;line=wd}else line=(line?line+" ":"")+wd});T(s,x+12,ly,line,"xs m");
+    if(i<steps.length-1)T(s,x+w+g/2,124,"›","","middle",{"font-size":"20",fill:"#566275"});
+  });
+  T(s,10,246,"Step 3 is where approaches A–D differ; every other step is shared.","xs m");
+})();
+
+drawTabs();drawMap();
+</script>
+</body>
+</html>
