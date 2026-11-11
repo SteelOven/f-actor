@@ -20,13 +20,15 @@ DATA=${3:-finetune/p7_short_ok}
 LR=${4:-1e-5}
 WS_DIR=${WS_DIR:-/workspace/ws}
 EVAL=${EVAL_STEPS:-10}   # save_steps must be a multiple of eval_steps (load_best_model_at_end)
+# Started through personaplex cluster/run.sh (a recorded run): the model goes to that run's out/ folder.
+OUT=${OOV_RUN_DIR:+$OOV_RUN_DIR/out}; OUT=${OUT:-$WS_DIR/finetune/runs/$NAME}
 
 export WANDB_MODE=${WANDB_MODE:-offline} HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
 ${FACTOR_PYTHON:-python3} training/finetune.py \
   --model_name "$NAME" \
   --model_id hf_models/f_actor \
   --speech_path "$WS_DIR/$DATA" \
-  --output_dir "$WS_DIR/finetune/runs/$NAME" \
+  --output_dir "$OUT" \
   --preprocessing_num_workers 4 \
   --num_dsus 4 \
   --text_stream \
