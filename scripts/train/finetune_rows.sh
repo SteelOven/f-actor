@@ -4,7 +4,7 @@
 # Loss only on the system (reply) streams (--calc_loss_on_c1_only, the same half eval always scores): the request is teacher-forced at
 # inference, so training on it is wasted. Without the flag, training scores both streams while eval scores only the reply.
 #
-#   bash scripts/train/finetune_rows.sh <run_name> [max_steps=20] [data=finetune/p7_short_ok] [lr=1e-5]
+#   bash scripts/train/finetune_rows.sh <run_name> <max_steps> <data> [lr=1e-5]
 #   EXTRA_FLAGS="--mask_prompt_loss --word_loss_weight 10" ...   extra finetune.py flags, word-split on purpose (unquoted)
 #   FULL_CHECKPOINTS=1 ...   checkpoint-N/ also holds the optimizer state (10.9 GB each, only needed to resume training). Default: weights only.
 #   KEEP_FINAL=1 ...   no early stopping, best_model/ = the last weights (eval loss picks an under-trained checkpoint here: it is dominated by the audio
@@ -18,9 +18,9 @@
 # The architecture flags are those of scripts/train/train_nanocodec_special_tokens.sh, which the released checkpoint was trained with.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-NAME=${1:?usage: $0 <run_name> [max_steps] [data] [lr]}
-STEPS=${2:-20}
-DATA=${3:-finetune/p7_short_ok}
+NAME=${1:?usage: $0 <run_name> <max_steps> <data> [lr]}
+STEPS=${2:?max_steps (20 for a smoke test)}
+DATA=${3:?data: a rows run (runs/rows/<date>-<name>) or a dir below the workspace (finetune/p7_short_ok)}
 LR=${4:-1e-5}
 WS_DIR=${WS_DIR:-/workspace/ws}
 EVAL=${EVAL_STEPS:-10}   # save_steps must be a multiple of eval_steps (load_best_model_at_end)

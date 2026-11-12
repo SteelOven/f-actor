@@ -10,7 +10,10 @@ after the last word makes the model emit EOS at the first generated frame, see o
         --request-dir $WS/checks/p6_full_request_s0_ok --timings $WS/finetune/p7_short_ok.timings.json \\
         --out-dir confs/rows_test/finetuned --output-dir outputs/rows_test/finetuned
     FACTOR_MODEL_DIR=<run>/best_model python training/run_oov_batch.py --configs-glob 'confs/rows_test/finetuned/*.json'
-    python scripts/analysis/score_rows_test.py --configs-glob 'confs/rows_test/finetuned/*.json'
+    $TOOLS_PYTHON scripts/analysis/analyze_oov.py --manifest confs/rows_test/finetuned/manifest.tsv --outdir outputs/rows_test/finetuned \
+        --asr-backend parakeet-tdt --report outputs/rows_test/finetuned/analysis.tsv
+
+Normally not called by hand: oov-shared run_experiment.sh does these three steps for an experiment config with factor.rows.
 
 Run it twice with another --out-dir/--output-dir (and no FACTOR_MODEL_DIR) for the released model as the baseline.
 Also writes <out-dir>/manifest.tsv in the format of generate_oov_configs.py, so analyze_oov.py grades these runs like any other

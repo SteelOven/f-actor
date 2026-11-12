@@ -9,7 +9,7 @@ commit `2efa25d`; upstream has moved on, see "Upstream sync". Branches are stack
 | `main` | Local inference (CUDA/MPS/CPU, JSON-config driven `inference_example.py`, fp16), OOV analysis scripts, cluster sbatch wrappers, `run_oov_batch.py` | 35 over upstream |
 | `layer/1-train-options` | Training flags that change the loss/data: `--system_speaker`, `--mask_prompt_loss`, `--word_loss_weight` | 3 |
 | `layer/2-prefix` | Prefix generation: a fixed first turn (TTS clip) before the model speaks; tail, look-ahead, multi-turn prefixes; checks and golden file | 17 |
-| `layer/3-rows-finetune` | Request to reply fine-tune and its evals: `finetune_rows.sh`, `smoke_rows.sh`, teacher-forced check, EOS probe, inference options | 30 |
+| `layer/3-rows-finetune` | Request to reply fine-tune and its evals: `finetune_rows.sh`, teacher-forced check, EOS probe, inference options (`smoke_rows.sh`, which chained them, was removed 2026-11-12: the stages are recorded runs now, see oov-shared `README.md`) | 30 |
 | `dev` | `layer/3` minus the row builders (moved to the `tts_rows` repo) and the experiment docs (moved to `oov-shared/docs/experiments`) | +4 |
 
 `answer-finetune`, `prefix`, `prefix-multiturn`, `finetune-repeat` are the pre-restructure branches (same content, different history); tags
@@ -41,7 +41,7 @@ Generation (`confs/*.json`, read by `training/inference_example.py`):
 
 | Moved to | What |
 |---|---|
-| `tts_rows` | Row builders (`train_rows.py` is now `tts_rows.training_rows`, `build_rows_dataset.py` is `tts_rows.build_dataset`); `smoke_rows.sh` calls them with `PYTHONPATH=$WS/tts_rows/src` |
+| `tts_rows` | Row builders (`train_rows.py` is now `tts_rows.training_rows`, `build_rows_dataset.py` is `tts_rows.build_dataset`); on the cluster they run through tts_rows `cluster/build_rows.sh` |
 | `oov-shared/docs/experiments` | `prefix_log.md`, `oov_experiment.md`, `variants.md`, `advisor_update.md` |
 | stays | `docs/model_walkthrough.md`, `notebooks/01-03` (they walk through this repo's code) |
 
