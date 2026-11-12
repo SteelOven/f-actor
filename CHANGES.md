@@ -25,6 +25,7 @@ Training (`training/arguments/arguments.py`):
 | `--system_speaker 0\|1` | none | Fix which speaker is the system speaker (otherwise random role swap) |
 | `--mask_prompt_loss` | off | Prompt tokens are inputs only, not text-loss targets |
 | `--word_loss_weight W` | 1.0 | Up-weight real word tokens in the text loss (normalised by the summed weights) |
+| `--save_only_model` | off | Checkpoints hold the weights only, no optimizer state; they cannot resume training (`finetune_rows.sh` passes it unless `FULL_CHECKPOINTS=1`) |
 | `--keep_final_model`, `--early_stopping_patience 0` | off, 10 | Keep the last weights instead of the best-eval checkpoint (`finetune_rows.sh`: `KEEP_FINAL=1`) |
 
 Generation (`confs/*.json`, read by `training/inference_example.py`):

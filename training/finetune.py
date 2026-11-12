@@ -77,6 +77,7 @@ def train(args, logger):
         max_grad_norm=training_args.gradient_clipping,
         weight_decay=training_args.weight_decay,
         save_total_limit=training_args.save_total_limit,
+        save_only_model=training_args.save_only_model,
         load_best_model_at_end=not training_args.keep_final_model,
         metric_for_best_model="eval_loss",
         greater_is_better=False,

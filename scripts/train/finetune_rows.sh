@@ -6,6 +6,7 @@
 #
 #   bash scripts/train/finetune_rows.sh <run_name> [max_steps=20] [data=finetune/p7_short_ok] [lr=1e-5]
 #   EXTRA_FLAGS="--mask_prompt_loss --word_loss_weight 10" ...   extra finetune.py flags, word-split on purpose (unquoted)
+#   FULL_CHECKPOINTS=1 ...   checkpoint-N/ also holds the optimizer state (10.9 GB each, only needed to resume training). Default: weights only.
 #   KEEP_FINAL=1 ...   no early stopping, best_model/ = the last weights (eval loss picks an under-trained checkpoint here: it is dominated by the audio
 #                      codes of a word the model cannot copy yet, so it rises while the model learns the task; judge checkpoints with teacher_forced_check.py)
 #
@@ -50,4 +51,5 @@ ${FACTOR_PYTHON:-python3} training/finetune.py \
   --save_steps "$EVAL" \
   --save_total_limit 2 \
   ${KEEP_FINAL:+--keep_final_model --early_stopping_patience 0} \
+  $([[ -n ${FULL_CHECKPOINTS:-} ]] || echo --save_only_model) \
   ${EXTRA_FLAGS:-}
