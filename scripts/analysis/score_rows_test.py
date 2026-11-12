@@ -1,5 +1,9 @@
 """Did the model answer "Okay, <word>"? Transcribes speaker 2's continuation of each rows-test config with parakeet.
 
+Superseded 2026-11-12: evaluations of fine-tuned models go through oov-shared run_experiment.sh (factor.model + factor.rows),
+graded by analyze_oov.py with the numbers in metrics.json (oov-shared README.md, "Evaluating a fine-tuned model"). This script
+is kept to reproduce old numbers; its rule is stricter (exact word match) than analyze_oov's intact/split labels.
+
     python scripts/analysis/score_rows_test.py --configs-glob 'confs/rows_test/finetuned/*.json'
 
 The continuation is <output_dir>/<word>_c2_cont.wav (written by inference_example's split_prefix_channels). A reply counts as

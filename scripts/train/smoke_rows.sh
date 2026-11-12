@@ -8,6 +8,8 @@
 #   tf      teacher-forced check of the tuned model on the unseen (validation) words, narrative as trained / without the word / with another word
 #           (does it copy the word from the request audio, or read it from the narrative, or recall a trained word?); TFMODEL=baseline for the base model, TFSPLIT=train for the trained words
 #   eval    request + 0.3 s tail as prefix on the validation words, base model and tuned model, then the answer score
+#           (superseded 2026-11-12 by oov-shared run_experiment.sh with factor.model + factor.rows, which records the run and
+#           grades with analyze_oov.py: oov-shared README.md, "Evaluating a fine-tuned model". Kept to reproduce old numbers.)
 #
 #   cd /workspace/factor-code && git checkout answer-finetune
 #   bash scripts/train/smoke_rows.sh align build          # first, no GPU needed
