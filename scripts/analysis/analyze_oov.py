@@ -140,7 +140,7 @@ def main():
     print(f"\n{'band':<16}{'n':>3}  {'mono intact%':>12}{'audio intact%':>14}{'s2 audio%':>10}"
           f"{'mean WER':>10}{mos_hdr}")
     print("-" * (70 + len(mos_hdr)))
-    for band in BANDS:
+    for band in BANDS + sorted({r["band"] for r in results} - set(BANDS)):   # other bands: e.g. unseen/trained (make_rows_test_configs.py)
         b = [r for r in results if r["band"] == band]
         if not b:
             continue

@@ -13,6 +13,8 @@ after the last word makes the model emit EOS at the first generated frame, see o
     python scripts/analysis/score_rows_test.py --configs-glob 'confs/rows_test/finetuned/*.json'
 
 Run it twice with another --out-dir/--output-dir (and no FACTOR_MODEL_DIR) for the released model as the baseline.
+Also writes <out-dir>/manifest.tsv in the format of generate_oov_configs.py, so analyze_oov.py grades these runs like any other
+(oov-shared run_experiment.sh with factor.rows). Its band column is "unseen" (validation split) or "trained" (train split).
 """
 
 import argparse
@@ -54,6 +56,8 @@ def main(argv=None):
     by_name = {Path(k).name: v for k, v in timings.items()}  # robust to the cluster vs laptop path prefix
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
+    band = {"validation": "unseen", "train": "trained"}.get(args.split, args.split)
+    manifest = ["word\tspeech_count\tnarrative_count\tband\trepeat\tconfig\taudio\tprefix"]
     for r, k in ((r, k) for r in rows for k in range(args.repeats)):
         tag = f"_r{k}" if args.repeats > 1 else ""
         word = r["file_name"]
@@ -76,6 +80,8 @@ def main(argv=None):
             "top_p": 1.0,
         }
         (args.out_dir / f"{word}{tag}.json").write_text(json.dumps(cfg, indent=2))
+        manifest.append(f"{word}\t\t\t{band}\t{k + 1}\t{args.out_dir / (word + tag + '.json')}\t{Path(args.output_dir) / (word + tag + '.wav')}\t{wav}")
+    (args.out_dir / "manifest.tsv").write_text("\n".join(manifest) + "\n")
     print(f"wrote {len(rows) * args.repeats} configs ({len(rows)} words x {args.repeats}, {args.split}) to {args.out_dir}")
 
 
