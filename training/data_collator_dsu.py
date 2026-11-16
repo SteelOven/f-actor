@@ -41,6 +41,7 @@ class DSUDataCollator(DataCollatorForLanguageModeling):
         all_dsu_ids = [f.pop("dsu_ids") for f in features]
         all_text_streams = [f.pop("text_stream_ids", None) for f in features]
         spk_emb = [f.pop("spk_emb", None) for f in features]
+        target_word_ids = [f.pop("target_word_ids", None) for f in features]  # only with --target_word_loss_weight
 
         # First, pad input_ids and other standard fields using parent collator
         # breakpoint()
@@ -49,6 +50,9 @@ class DSUDataCollator(DataCollatorForLanguageModeling):
             return batch
 
         batch["spk_emb"] = spk_emb
+        if target_word_ids[0] is not None:  # [B, K] token ids of each row's target word, padded with -1
+            k = max(len(t) for t in target_word_ids)
+            batch["target_word_ids"] = torch.tensor([list(t) + [-1] * (k - len(t)) for t in target_word_ids], dtype=torch.long)
         # process text and dsustreams
         batch_size = len(features)
         streams = [

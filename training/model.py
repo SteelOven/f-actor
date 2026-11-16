@@ -67,6 +67,7 @@ def load_model(model_args, grad_acc_steps=1, logger=None, inference=False):
     config.calc_loss_on_c1_only = model_args.calc_loss_on_c1_only
     config.mask_prompt_loss = model_args.mask_prompt_loss
     config.word_loss_weight = model_args.word_loss_weight
+    config.target_word_loss_weight = model_args.target_word_loss_weight
 
     # load model (if num_dsu < 1, this will be the normal model)
     model = model_cls.from_pretrained(

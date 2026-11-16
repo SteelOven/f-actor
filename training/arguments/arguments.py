@@ -16,6 +16,7 @@ class ModelArgs:
     calc_loss_on_c1_only: bool = False
     word_loss_weight: float = 1.0  # >1: text-loss weight of real word tokens (training only; loss stays normalised by the summed weights)
     mask_prompt_loss: bool = False  # True: prompt tokens are inputs only, not text-loss targets
+    target_word_loss_weight: float = 1.0  # >1: text-loss weight of the row's target word only (its file_name, as the system speaker last says it; rows datasets); multiplies with word_loss_weight; training only
 
     def __post_init__(self):
         if self.text_stream and self.multi_text_stream:

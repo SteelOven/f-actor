@@ -27,6 +27,22 @@ def get_world_size() -> int:
     return 1
 
 
+def target_word_token_ids(example, tokenizer, system_idx: int) -> list[int]:
+    """Token ids of the row's target word (file_name) as create_text_stream writes it in the system text stream: the last time the
+    system speaker says it in its own utterances, " word" unless it opens the utterance. For rows datasets (file_name = the word)."""
+    word = example["file_name"].lower()
+    first = None
+    for utt in example["utterances"]:
+        if utt["speaker_idx"] == system_idx:
+            for wi, w in enumerate(utt["words"]):
+                if w["word"].lower() == word:
+                    first = wi == 0
+    if first is None:
+        raise ValueError(f"target_word_loss_weight: the system speaker never says the row's word {word!r} (file_name); "
+                         "the flag is for rows datasets, where file_name is the word")
+    return tokenizer(word if first else " " + word, add_special_tokens=False)["input_ids"]
+
+
 def load_speech_data(
     model_args: "ModelArgs",  # reads: max_length, num_dsus, text_stream, multi_text_stream
     data_args: "DataArgs",  # reads: speech_path, system_speaker, n_delay_*_stream, word_alignment, add_*_token, ...
@@ -42,6 +58,8 @@ def load_speech_data(
     num_dsus = model_args.num_dsus
     text_stream = model_args.text_stream
     multi_text_stream = model_args.multi_text_stream
+    target_words = not inference and getattr(model_args, "target_word_loss_weight", 1.0) != 1.0
+    skip_train = {**SKIP_EXAMPLE_DICT_TRAIN, "target_word_ids": None} if target_words else SKIP_EXAMPLE_DICT_TRAIN
 
     def tokenize_speech(example):
         n_overflow_words = 0
@@ -85,7 +103,7 @@ def load_speech_data(
                 return (
                     SKIP_EXAMPLE_DICT_INFERENCE
                     if inference
-                    else SKIP_EXAMPLE_DICT_TRAIN
+                    else skip_train
                 )  # empty dict
 
         prompt_system = build_prompt(
@@ -125,6 +143,8 @@ def load_speech_data(
                 "n_overflow_words": n_overflow_words,
                 "spk_emb": speaker_embed_system,
             }
+            if target_words:
+                return_dict["target_word_ids"] = target_word_token_ids(example, tokenizer, role_to_speaker_map["system"])
 
         else:
             prompt_user = build_prompt(

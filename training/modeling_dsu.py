@@ -7,6 +7,29 @@ from torch.nn.utils.rnn import pad_sequence
 from transformers import DynamicCache, LlamaForCausalLM, PretrainedConfig
 
 
+def target_word_positions(
+    labels: torch.Tensor,  # [B, L] shifted text labels of the system stream (head 0)
+    target_ids: torch.Tensor,  # [B, K] token ids of each row's target word, padded with -1
+    frame_start: torch.Tensor,  # [B] first label index in the frame region (prompt_lens - 1); the prompt is never matched
+) -> torch.Tensor:  # [B, L] bool: the tokens of the last occurrence of the target word in the frames
+    """Where the row's target word is in the system text stream. create_text_stream writes each word's tokens contiguously, so the
+    word is an exact match of its token ids; the last match is taken (the reply comes after the request). A row without a match
+    raises: the flag would silently do nothing on it."""
+    hit = torch.zeros_like(labels, dtype=torch.bool)
+    for b in range(labels.shape[0]):
+        t = target_ids[b][target_ids[b] >= 0].to(labels.device)
+        k = t.numel()
+        start = int(frame_start[b])
+        if k == 0 or labels.shape[1] - start < k:
+            raise ValueError(f"target_word_loss_weight: row {b} has no target word tokens or too few frames")
+        match = (labels[b, start:].unfold(0, k, 1) == t).all(-1).nonzero()
+        if match.numel() == 0:
+            raise ValueError(f"target_word_loss_weight: target word tokens {t.tolist()} not found in row {b}'s system text stream")
+        j = start + int(match[-1])
+        hit[b, j : j + k] = True
+    return hit
+
+
 class DSUModel(ModelInitializerLoader):
     def __init__(
         self,
@@ -26,6 +49,7 @@ class DSUModel(ModelInitializerLoader):
         self.calc_loss_on_c1_only = config.calc_loss_on_c1_only
         self.mask_prompt_loss = getattr(config, "mask_prompt_loss", False)  # absent in older configs
         self.word_loss_weight = getattr(config, "word_loss_weight", 1.0)
+        self.target_word_loss_weight = getattr(config, "target_word_loss_weight", 1.0)
         self.text_special_ids = None  # set by load_model: ids of TEXT_STREAM_TOKENS
 
         # vocab sizes for text and audio
@@ -71,6 +95,7 @@ class DSUModel(ModelInitializerLoader):
         dsu_ids: torch.LongTensor | None = None,  # [B, 8, T] audio codes, 8 heads (0-3 system, 4-7 user)
         text_stream_ids: torch.LongTensor | None = None,  # [B, 1, T] text stream(s)
         spk_emb: Sequence[Sequence[float]] | None = None,  # B vectors of 192 floats
+        target_word_ids: torch.LongTensor | None = None,  # [B, K] each row's target word tokens, -1 padded (--target_word_loss_weight)
         inference: bool = False,  # True: no EOS column appended, prompt left-padded
         need_loss: bool = True,
         past_key_values: DynamicCache | None = None,  # generate(): KV cache; only the last frame is fed once it is filled
@@ -199,6 +224,15 @@ class DSUModel(ModelInitializerLoader):
                     )
                     is_word = mask & in_frames & ~torch.isin(labels_shifted, self.text_special_ids)
                     weights = weights * torch.where(is_word, self.word_loss_weight, 1.0)
+                if (
+                    loss_type == "text"
+                    and self.model.training
+                    and self.target_word_loss_weight != 1.0
+                ):
+                    if prompt_lens is None or target_word_ids is None:
+                        raise ValueError("target_word_loss_weight needs a full pass and target_word_ids (data.py, rows datasets)")
+                    is_target = target_word_positions(labels_shifted[:, 0], target_word_ids, prompt_lens - 1)
+                    weights[:, 0] = weights[:, 0] * torch.where(is_target, self.target_word_loss_weight, 1.0)
                 target = torch.where(mask, labels_shifted, torch.zeros_like(labels_shifted))
                 per_token_loss = F.cross_entropy(
                     logits.reshape(-1, logits.shape[-1]),
