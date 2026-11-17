@@ -52,3 +52,4 @@ Topic Oov Full-Duplex
 /LOCAL_SETUP.md
 /UniCluster
 /docs/.obsidian/*
+.venv-gpu/
