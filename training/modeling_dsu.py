@@ -737,6 +737,11 @@ class DSUModel(ModelInitializerLoader):
         # silent channel instead of being sampled, so speaker 2 hears silence as in a fine-tune whose rows keep the request speaker
         # silent after the request. Speaker 1's EOS can then no longer stop the run; speaker 2's still does.
         silence_speaker1 = kwargs.pop("silence_speaker1", False)
+        # experiment switch (default off): callable (step, text stream 0 of every row [rows, step + 1]) -> {row: token id}; the returned
+        # tokens replace the sampled text tokens of the current frame only (earlier frames are in the KV cache). training/forced_text.py
+        text_override = kwargs.pop("text_override", None)
+        if text_override is not None and not (self.text_stream or self.multi_text_stream):
+            raise ValueError("text_override needs a text stream")
 
         if self.text_stream and text_sample is not None and dsu_sample is None:
             raise ValueError("Need to add dsu sample if you want text sample!")
@@ -852,6 +857,9 @@ class DSUModel(ModelInitializerLoader):
                 generated_text[:, :, step] = self.get_next_tokens(
                     B, ts_logits, do_sample, temperature, top_k, top_p
                 )
+                if text_override is not None:
+                    for row, tok in text_override(step, generated_text[:, 0, : step + 1].clone()).items():
+                        generated_text[row, 0, step] = tok
 
             if silence_speaker1:
                 generated_dsu[0, : self.num_dsu_heads // 2, step] = silence_codes

@@ -5,10 +5,11 @@ import os
 import numpy as np
 import torch
 from device_utils import get_device
+from forced_text import ForcedText, parse_rules
 from huggingface_hub import snapshot_download
 from inference_audio.nano_decode import convert_to_audio
 from inference_audio.nano_decode import load_model as load_nanocodecs
-from prefix import N_DELAY_AUDIO, SAMPLES_PER_FRAME, build_multiturn_prefix, build_prefix
+from prefix import CODEC_SR, N_DELAY_AUDIO, SAMPLES_PER_FRAME, build_multiturn_prefix, build_prefix
 from special_tokens import TEXT_STREAM_TOKENS
 from modeling_dsu import DSULlama
 from transformers import AutoConfig, AutoTokenizer
@@ -223,6 +224,11 @@ def generate_dialogue(model, tokenizer, nanocodec_model, config):
         text_sample = torch.zeros(1, 2, 1, dtype=torch.int64).to(device)  # placeholder
         n_prefix = 0
 
+    # optional forced text: replace a speaker's n-th generated word by a given word (training/forced_text.py); built per run (it keeps state)
+    forced = None
+    if config.get("force_text"):
+        forced = ForcedText(parse_rules(config["force_text"], config.get("meta", {}).get("word")), tokenizer)
+
     # generate dialogue
     print("Generating dialogue...")
     with torch.no_grad():
@@ -246,6 +252,7 @@ def generate_dialogue(model, tokenizer, nanocodec_model, config):
             talk_to_itself=True,
             spk_emb=example["spk_embeds"],
             silence_speaker1=bool(config.get("silence_speaker1", False)),
+            text_override=forced,
         )
 
     generated_dsu_ids, generated_text_ids = generated_ids
@@ -264,6 +271,10 @@ def generate_dialogue(model, tokenizer, nanocodec_model, config):
     # how generation ended: generate() stops when any head emits the model's audio EOS id, else after max_length
     n_total = len(generated_dsu_ids[0])
     ended_by = "eos" if any(h[-1] == model.audio_eos_id for h in generated_dsu_ids) else "max_length"
+    # whose EOS: row 0's heads 0-3 are speaker 1's own, 4-7 speaker 2's (interleave_halves copied them in before the stop check)
+    half = model.num_dsu_heads // 2
+    eos_by = [spk for spk, heads in (("speaker1", generated_dsu_ids[:half]), ("speaker2", generated_dsu_ids[half:]))
+              if any(h[-1] == model.audio_eos_id for h in heads)]
 
     # decode generated text; with a prefix, its N frames are forced, not generated
     print("Decoding generated text")
@@ -281,7 +292,10 @@ def generate_dialogue(model, tokenizer, nanocodec_model, config):
         "speaker2": {"name": speaker2["name"], "transcript": text_speaker2},
         "n_generated_frames": n_total - n_prefix,
         "ended_by": ended_by,
+        "eos_by": eos_by,
     }
+    if forced is not None:
+        generation["forced"] = forced.record(n_total, n_prefix, N_DELAY_AUDIO, SAMPLES_PER_FRAME / CODEC_SR)
     record_prefix = None
     if prefix is not None:
         audio_files.update(split_prefix_channels(base, ext, prefix))

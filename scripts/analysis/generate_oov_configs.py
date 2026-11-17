@@ -174,6 +174,8 @@ def make_config(word, speaker1, speaker2, rep, args, speech_count, narrative_cou
         "top_k": args.top_k,
         "top_p": args.top_p,
     }
+    if getattr(args, "force_nth_word", None):
+        config["force_text"] = [{"speaker": "speaker2", "n": args.force_nth_word}]
     if prefix_row is not None:
         if demos:
             config["prefix"] = make_multiturn_prefix(prefix_row, demos, args)
@@ -215,6 +217,9 @@ def main():
     parser.add_argument("--vocab", default=VOCAB_TABLE)
     parser.add_argument("--narrative-explainer", default=NARRATIVE_EXPLAINER, dest="narrative_explainer")
     parser.add_argument("--narrative-listener", default=NARRATIVE_LISTENER, dest="narrative_listener")
+    parser.add_argument("--force-nth-word", type=int, dest="force_nth_word",
+                        help="forced text (training/forced_text.py): when speaker 2 starts its N-th generated word, that word is "
+                        "replaced by the target word (meta.word). Default: off")
     parser.add_argument("--temperature", type=float, default=0.9)
     parser.add_argument("--top-k", type=int, default=40, dest="top_k")
     parser.add_argument("--top-p", type=float, default=1.0, dest="top_p")
