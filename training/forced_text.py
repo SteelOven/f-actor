@@ -21,12 +21,21 @@ written as create_text_stream writes a word: lowercased, with a leading space un
 is not [WORD_PAD], [UTTERANCE_PAD] or a word token). Tokens are written only into the frame being generated: earlier frames are already
 in the KV cache, so rewriting them would silently desync the model's context.
 
+Backchannels and interrupts (add_bc_token / add_interrupt_token, on in the released checkpoint), as create_text_stream writes them:
+  - a backchannel is `[BC]` (one added token) + " yeah" ...: its words are not counted and never replaced (a forced word in a
+    "yeah" is not what the experiment asks); the backchannel lasts until the next [SILENCE_PAD]. Counted in the record as
+    `backchannel_words_skipped`.
+  - an interrupting turn starts with "[INTER]", which is NOT a token of the vocabulary: it is the plain pieces "[", "INTER", "]",
+    followed by " wait" ... . The marker is not a word; the turn's words count as normal words (with a leading space after the marker).
+  Any "[...]" written out of plain pieces is treated as such a marker; one whose text starts with "[BC" (the counting tokens
+  [BC1] ... of add_counting_tokens) opens a backchannel.
+
 Self-test: scripts/analysis/forced_text_selftest.py.
 """
 
 from dataclasses import dataclass, field
 
-from special_tokens import TEXT_STREAM_TOKENS, UTTERANCE_PAD, WORD_PAD
+from special_tokens import BC_TOKEN, SILENCE_PAD, TEXT_STREAM_TOKENS, UTTERANCE_PAD, WORD_PAD
 
 SPEAKER_ROW = {"speaker1": 0, "speaker2": 1}
 RULE_KEYS = {"speaker", "n", "word"}
@@ -90,9 +99,13 @@ class ForcedText:
         non_word.add(tokenizer.pad_token_id)
         self.non_word = {i for i in non_word if i is not None}
         self.in_utterance = set(tokenizer.convert_tokens_to_ids([WORD_PAD, UTTERANCE_PAD]))
-        self._row = {}                    # row -> {"count": words started, "pending": tokens still to force, "rules": {n: Rule}}
+        self.silence_id = tokenizer.convert_tokens_to_ids(SILENCE_PAD)
+        self.bc_id = tokenizer.convert_tokens_to_ids(BC_TOKEN)
+        # per row: words started, tokens still to force, rules by n, inside a backchannel, text of a "[...]" marker being read (or None)
+        self._row = {}
         for r in rules:
-            st = self._row.setdefault(SPEAKER_ROW[r.speaker], {"count": 0, "pending": [], "rules": {}})
+            st = self._row.setdefault(SPEAKER_ROW[r.speaker], {"count": 0, "pending": [], "rules": {}, "in_bc": False,
+                                                               "marker": None, "bc_skipped": 0})
             st["rules"][r.n] = r
 
     def is_word(self, tok: int) -> bool:
@@ -119,7 +132,24 @@ class ForcedText:
                 continue
             tok = int(text[row, step])
             prev = int(text[row, step - 1]) if step > 0 else None
+            if tok == self.bc_id:                   # [BC]: a backchannel until the next silence
+                st["in_bc"], st["marker"] = True, None
+                continue
+            if tok == self.silence_id:
+                st["in_bc"], st["marker"] = False, None
+                continue
+            if st["marker"] is not None:            # inside "[...]" written as plain pieces ("[INTER]", "[BC1]" ...)
+                st["marker"] += self.tokenizer.decode([tok])
+                if "]" in st["marker"]:
+                    st["in_bc"], st["marker"] = st["marker"].lstrip().startswith("[BC"), None
+                continue
             if not self.starts_word(tok, prev):
+                continue
+            if self.tokenizer.decode([tok]).strip() == "[":
+                st["marker"] = "["
+                continue
+            if st["in_bc"]:
+                st["bc_skipped"] += 1
                 continue
             st["count"] += 1
             rule = st["rules"].get(st["count"])
@@ -142,7 +172,8 @@ class ForcedText:
         frames_after_last_token: grid frames after the last forced token (the word's audio needs n_delay of them plus its length)."""
         out = []
         for r in self.rules:
-            d = {"speaker": r.speaker, "n": r.n, "word": r.word, "happened": r.happened}
+            d = {"speaker": r.speaker, "n": r.n, "word": r.word, "happened": r.happened,
+                 "backchannel_words_skipped": self._row[SPEAKER_ROW[r.speaker]]["bc_skipped"]}   # by the end of the run
             if r.happened:
                 d.update(step=r.step, tokens=r.tokens, utterance_initial=r.utterance_initial, replaced=r.replaced,
                          audio_s=round(r.step * frame_s, 3), frames_after_last_token=n_total - (r.step + len(r.tokens)))

@@ -4,6 +4,8 @@
 
 Checks:
   1. word_tokens writes a word as create_text_stream does (utterance-initial: no leading space; inside an utterance: leading space).
+  2b. Over a create_text_stream stream with a normal turn, a backchannel and an interrupt, n = k gives exactly the stream training
+      makes with word k replaced (backchannel words not counted, the plain-piece [INTER] marker not a word).
   2. The hook on scripted text streams: the n-th generated word is replaced, its remaining tokens follow on the next frames, the
      sampled tokens under them are not counted; word starts after a pad and after a word token with a leading space; prefix words
      do not count; utterance-initial is read from the frame before; each speaker's rule touches only its own row; bad specs raise.
@@ -44,6 +46,43 @@ def check_word_tokens(tok):
         assert list(ids[frame: frame + len(t)]) == t, (word, list(ids[frame: frame + len(t)]), t)
     assert word_tokens(tok, "water", True) != word_tokens(tok, "water", False)
     print("1. word_tokens matches create_text_stream (initial and inside an utterance)")
+
+
+def bc_inter_example(tok, replace=None, word="xylophone"):
+    """Speaker 0 (the stream's speaker): a normal turn "okay water", a backchannel "yeah yeah" inside speaker 1's turn, an interrupting
+    turn "wait now"; 75 frames at 12.5 fps (6 s). replace=k puts `word` in place of speaker 0's k-th counted word (backchannels excluded).
+    Every word lasts 0.4 s = 5 frames, so a 3-token word fits its frames as the original did."""
+    w = lambda t, s: {"word": t, "start": s, "dur": 0.4}
+    ex = {"utterances": [
+        {"speaker_idx": 0, "uttr_type": "normal", "start_time": 0.4, "end_time": 1.3, "words": [w("okay", 0.4), w("water", 0.9)]},
+        {"speaker_idx": 1, "uttr_type": "normal", "start_time": 1.6, "end_time": 3.2, "words": [w("so", 1.6), w("then", 2.4)],
+         "backchannels": [{"start_time": 2.0, "end_time": 2.8, "words": [w("yeah", 2.0), w("yeah", 2.4)]}]},
+        {"speaker_idx": 0, "uttr_type": "interrupt", "start_time": 3.6, "end_time": 6.0, "words": [w("wait", 3.6), w("now", 4.2)]},
+    ]}
+    if replace:
+        own = [x for u in ex["utterances"] if u["speaker_idx"] == 0 for x in u["words"]]
+        own[replace - 1]["word"] = word
+    ids, skip, _ = create_text_stream(75, ex, tok, speaker_to_use=0, delay_frames=0, word_alignment=True,
+                                      add_bc_token=True, add_interrupt_token=True)
+    assert not skip
+    return list(ids)
+
+
+def check_against_training(tok):
+    """Driving the hook over a training-made stream with n = k must give exactly the stream training makes when word k is the target."""
+    orig = bc_inter_example(tok)
+    as_tokens = tok.convert_ids_to_tokens(orig)
+    assert "[BC]" in as_tokens and ["[", "INTER", "]"] == as_tokens[45:48], as_tokens[40:52]   # the formats this test is about
+    for k in (1, 2, 3, 4):
+        h = ForcedText(parse_rules({"speaker": "speaker1", "n": k, "word": "xylophone"}), tok)
+        got = run_hook(h, torch.tensor([orig]), 0)[0].tolist()
+        want = bc_inter_example(tok, replace=k)
+        assert got == want, (k, tok.convert_ids_to_tokens(got), tok.convert_ids_to_tokens(want))
+        assert h._row[0]["bc_skipped"] == 2                         # "yeah yeah", seen whether before or after the forced word
+    h = ForcedText(parse_rules({"speaker": "speaker1", "n": 5, "word": "xylophone"}), tok)
+    assert run_hook(h, torch.tensor([orig]), 0)[0].tolist() == orig and not h.rules[0].happened   # only 4 counted words
+    print("2b. hook over create_text_stream output (normal turn, backchannel, interrupt): n = 1..4 equals training's stream "
+          "with that word replaced; backchannel words skipped, [INTER] marker not a word")
 
 
 def run_hook(hook, text, start):
@@ -190,6 +229,7 @@ def main():
     tok.pad_token = tok.eos_token
     check_word_tokens(tok)
     check_hook(tok)
+    check_against_training(tok)
     check_generate(tok)
     print("OK")
 

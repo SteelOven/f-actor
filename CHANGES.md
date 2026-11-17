@@ -35,7 +35,7 @@ Generation (`confs/*.json`, read by `training/inference_example.py`):
 | `prefix` (`wav`, `words`, `tail_s`, `lookahead_s`, `gain_db`, or `turns[]` for several turns) | Fixed first turn(s) by speaker 1; built by `training/prefix.py` |
 | `silence_speaker1` | After the prefix the request speaker's audio heads are set to silence |
 | `prompt_format: "training"` | Narrative written as in training (`- <narrative>`) |
-| `force_text` (`[{"speaker", "n", "word"}]`) | Forced text: when that speaker starts its n-th generated word, the word's tokens are replaced by `word` (default `meta.word`); pads and audio stay sampled, stopping unchanged. Record: `generation.forced`. `training/forced_text.py`, `--force-nth-word` in both config generators, self-test `scripts/analysis/forced_text_selftest.py` |
+| `force_text` (`[{"speaker", "n", "word"}]`) | Forced text: when that speaker starts its n-th generated word, the word's tokens are replaced by `word` (default `meta.word`); backchannel words are not counted, the plain-piece `[INTER]` marker is not a word; pads and audio stay sampled, stopping unchanged. Record: `generation.forced`. `training/forced_text.py`, `--force-nth-word` in both config generators, self-test `scripts/analysis/forced_text_selftest.py` |
 | `FACTOR_MODEL_DIR` (env) | Load a local model dir instead of the released checkpoint |
 
 ## Where the rest went
