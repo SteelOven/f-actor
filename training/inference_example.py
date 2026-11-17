@@ -296,6 +296,13 @@ def generate_dialogue(model, tokenizer, nanocodec_model, config):
     }
     if forced is not None:
         generation["forced"] = forced.record(n_total, n_prefix, N_DELAY_AUDIO, SAMPLES_PER_FRAME / CODEC_SR)
+    # each speaker's text stream, one token per grid frame (prefix and delay frames included). Frame k's audio is at k * 0.08 s in the
+    # decoded files (the text leads the audio by N_DELAY_AUDIO frames, and decoding drops that many). scripts/analysis/show_text_frames.py
+    generation["text_frames"] = {
+        "frame_s": SAMPLES_PER_FRAME / CODEC_SR,
+        **{spk: {"ids": ids, "tokens": [tokenizer.decode([i]) for i in ids]}
+           for spk, ids in (("speaker1", generated_text_ids[0]), ("speaker2", generated_text_ids[1]))},
+    }
     record_prefix = None
     if prefix is not None:
         audio_files.update(split_prefix_channels(base, ext, prefix))

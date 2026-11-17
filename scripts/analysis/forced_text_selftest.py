@@ -12,9 +12,13 @@ Checks:
   3. generate() with a tiny random DSULlama: text_override=None gives the same output as no hook (same seed); a forced run has the
      forced tokens in its text at the recorded frames; and a fresh, cache-free forward over the forced run's frames predicts the same
      audio and text as the cached generation did (the forced tokens entered the model's context, the KV cache did not go stale).
+  4. The driver (inference_example.generate_dialogue, decoder stubbed) on configs from make_forced_text_configs.py: the record's
+     text_frames hold both speakers' streams for every frame, with the forced tokens at generation.forced's step; the free variant
+     has no force_text and no forced entry; show_text_frames.py reads the record.
 Needs the tokenizer in hf_models/f_actor.
 """
 
+import json
 import os
 import sys
 
@@ -224,6 +228,58 @@ def check_generate(tok):
     print(f"3c. cache-free recompute agrees with the cached forced generation on all {grid.shape[-1] - n_prefix} generated frames")
 
 
+def check_driver(tok):
+    import contextlib
+    import glob
+    import io
+    import tempfile
+    sys.path.insert(0, os.path.join(_REPO, "training", "inference_audio"))
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import inference_example as ie
+    import make_forced_text_configs
+    import show_text_frames
+    import soundfile as sf
+
+    def fake_convert(codec, dsus, path):                    # the channel files the driver expects, silent, one frame per code column
+        for f in (path, path[:-4] + "_c1.wav", path[:-4] + "_c2.wav"):
+            sf.write(f, np.zeros(1764 * len(dsus), dtype=np.float32), 22050)
+
+    model, tmp = tiny_model(tok).to(ie.get_device()), tempfile.mkdtemp()   # the driver puts its inputs on get_device()
+    orig_convert, ie.convert_to_audio = ie.convert_to_audio, fake_convert
+    cwd = os.getcwd()
+    os.chdir(_REPO)                                           # prepare_input reads training/example_speakers relative to the repo
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            make_forced_text_configs.main(["--group", "rare=xylophone", "--repeats", "1", "--free", "--max-length", "30",
+                                           "--out-dir", f"{tmp}/confs", "--output-dir", f"{tmp}/out"])
+        confs = sorted(glob.glob(f"{tmp}/confs/*.json"))
+        assert [os.path.basename(c) for c in confs] == ["xylophone_free_r1.json", "xylophone_n2_r1.json"], confs
+        manifest = open(f"{tmp}/confs/manifest.tsv").read().splitlines()
+        assert len(manifest) == 3 and manifest[1].split("\t")[3] in ("rare", "rare_free")
+        records = {}
+        for c in confs:
+            cfg = json.load(open(c))
+            with contextlib.redirect_stdout(io.StringIO()):
+                records[os.path.basename(c)] = json.load(open(ie.generate_dialogue(model, tok, None, cfg)[2]))
+    finally:
+        ie.convert_to_audio = orig_convert
+        os.chdir(cwd)
+    g = records["xylophone_n2_r1.json"]["generation"]
+    tf, f = g["text_frames"], g["forced"][0]
+    n_total = len(tf["speaker1"]["ids"])
+    assert len(tf["speaker2"]["ids"]) == n_total == len(tf["speaker2"]["tokens"]) == g["n_generated_frames"]   # no prefix
+    assert f["happened"] and tf["speaker2"]["ids"][f["step"]: f["step"] + len(f["tokens"])] == f["tokens"]
+    assert "".join(tf["speaker2"]["tokens"][f["step"]: f["step"] + len(f["tokens"])]).strip() == "xylophone"
+    free = records["xylophone_free_r1.json"]
+    assert "force_text" not in free["config"] and "forced" not in free["generation"] and "text_frames" in free["generation"]
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        show_text_frames.main([os.path.join(tmp, "out", "xylophone_n2_r1.json"), "--around-forced"])
+    assert ">>" in out.getvalue() and "-99.0" in out.getvalue(), out.getvalue()[:500]
+    print(f"4. driver: text_frames for both speakers ({n_total} frames), forced tokens at frame {f['step']}; free variant unforced; "
+          "configs + manifest; viewer")
+
+
 def main():
     tok = AutoTokenizer.from_pretrained(os.path.join(_REPO, "hf_models", "f_actor"))
     tok.pad_token = tok.eos_token
@@ -231,6 +287,7 @@ def main():
     check_hook(tok)
     check_against_training(tok)
     check_generate(tok)
+    check_driver(tok)
     print("OK")
 
 
