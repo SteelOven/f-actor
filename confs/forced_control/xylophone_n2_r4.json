@@ -1,0 +1,34 @@
+{
+  "speaker1": {
+    "name": "Rebeka",
+    "narrative": "You like Gweneth a lot and you tell her that she is your best friend.",
+    "starts": true,
+    "backchannels": 2,
+    "interruptions": 2
+  },
+  "speaker2": {
+    "name": "Gweneth",
+    "narrative": "You like Rebeka but you are not sure if she is your best friend.",
+    "starts": false,
+    "backchannels": 2,
+    "interruptions": 2
+  },
+  "output_dir": "scratch/forced_control",
+  "output_file": "xylophone_n2_r4.wav",
+  "max_length": 200,
+  "temperature": 0.9,
+  "top_k": 40,
+  "top_p": 1.0,
+  "meta": {
+    "word": "xylophone",
+    "group": "rare",
+    "variant": "forced",
+    "repeat": 4
+  },
+  "force_text": [
+    {
+      "speaker": "speaker2",
+      "n": 2
+    }
+  ]
+}
